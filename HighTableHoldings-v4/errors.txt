@@ -1,0 +1,19 @@
+2026-08-29 21:09:13,367 INFO    hth.migration.from_v3: Migration complete: MigrationReport(customers=663, transactions=6244, items=76, item_transactions=2528, krars=174, krar_dates=558, audit_entries=7075, warnings=['krar 63 references missing customer 31 - skipped'])
+2026-08-29 21:10:20,051 ERROR   hth.ui.app: Unhandled UI error
+Traceback (most recent call last):
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1962, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 861, in callit
+    func(*args)
+  File "C:\Users\Asus\Desktop\newharsh\HighTableHoldings-v4\hth\ui\views\base.py", line 74, in poll
+    done(payload)
+  File "C:\Users\Asus\Desktop\newharsh\HighTableHoldings-v4\hth\ui\views\dashboard.py", line 204, in _render
+    self.krar_table.set_rows(rows, f"{len(rows)} open krar")
+  File "C:\Users\Asus\Desktop\newharsh\HighTableHoldings-v4\hth\ui\widgets\datatable.py", line 109, in set_rows
+    self._render()
+  File "C:\Users\Asus\Desktop\newharsh\HighTableHoldings-v4\hth\ui\widgets\datatable.py", line 149, in _render
+    values = [_fmt(v, c.kind) for v, c in zip(row, self.columns, strict=True)]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: zip() argument 2 is shorter than argument 1
+2026-08-29 21:10:20,207 WARNING hth.ui.app: toast[error]: Something went wrong: zip() argument 2 is shorter than argument 1

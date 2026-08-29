@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.1 — 2026-08-29
+
+- Fix: tables with hidden trailing values (dashboard krar list, Karar screen) crashed with
+  `zip() argument 2 is shorter than argument 1` after the first import of real data.
+- Migration now reports every skipped or normalised value with its v3 table and row id, and
+  writes the list to `<data>/migration_report.txt` (also shown after Settings → Import).
+- New admin report **Data check** and `tools/check_data.py`: invalid / future dates,
+  negative stock, duplicate customers, zero-amount entries, lone settlement rows, open krar
+  with nothing owed, long-inactive debtors. Double-click a finding to open the record.
+- UI walkthrough test now seeds krar so hidden-column tables are exercised.
+
 ## 4.0.0 — 2026-08-29
 
 Ground-up rewrite. Business rules and numbers are unchanged from 3.7.1.

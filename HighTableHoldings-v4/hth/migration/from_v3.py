@@ -18,6 +18,8 @@ from hth.db.connection import Database
 
 log = logging.getLogger(__name__)
 
+DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
 
 class MigrationError(Exception):
     pass
@@ -34,6 +36,11 @@ class MigrationReport:
     audit_entries: int = 0
     warnings: list[str] = field(default_factory=list)
 
+    def write(self, path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(self.as_lines()) + "\n", encoding="utf-8")
+        return path
+
     def as_lines(self) -> list[str]:
         return [
             f"customers:         {self.customers}",
@@ -43,7 +50,8 @@ class MigrationReport:
             f"krars:             {self.krars}",
             f"krar dates:        {self.krar_dates}",
             f"audit entries:     {self.audit_entries}",
-            *[f"warning: {w}" for w in self.warnings],
+            f"warnings:          {len(self.warnings)}",
+            *[f"  - {w}" for w in self.warnings],
         ]
 
 
@@ -60,20 +68,34 @@ def _tables(conn: sqlite3.Connection, pattern: str) -> list[str]:
     return [r[0] for r in rows if re.fullmatch(pattern, r[0])]
 
 
-def _clean_tag(value) -> str:
-    v = str(value if value is not None else "1").strip()[:1]
-    return v if v in ("0", "1", "2") else "1"
+def _clean_tag(value, where: str, report: MigrationReport) -> str:
+    raw = "" if value is None else str(value).strip()
+    v = raw[:1]
+    if v in ("0", "1", "2"):
+        return v
+    report.warnings.append(f"{where}: tag {raw!r} is not 0/1/2 - imported as 1 (normal)")
+    return "1"
 
 
-def _clean_type(value) -> str:
-    v = str(value or "P").strip().upper()[:1]
-    return v if v in ("P", "M") else "P"
+def _clean_type(value, where: str, report: MigrationReport) -> str:
+    raw = "" if value is None else str(value).strip()
+    v = raw.upper()[:1]
+    if v in ("P", "M"):
+        return v
+    report.warnings.append(f"{where}: type {raw!r} is not P/M - imported as P (debit)")
+    return "P"
 
 
-def _num(value, default: float = 0.0) -> float:
+def _num(value, where: str = "", report: MigrationReport | None = None, default: float = 0.0) -> float:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        if report is not None:
+            report.warnings.append(f"{where}: amount is blank - imported as {default:g}")
+        return default
     try:
         return float(value)
     except (TypeError, ValueError):
+        if report is not None:
+            report.warnings.append(f"{where}: amount {value!r} is not a number - imported as {default:g}")
         return default
 
 
@@ -115,6 +137,9 @@ def _migrate_accounts(path: Path, conn: sqlite3.Connection, report: MigrationRep
                 if not t["date"]:
                     report.warnings.append(f"{table} row {t['id']} has no date - skipped")
                     continue
+                if not DATE_RE.fullmatch(str(t["date"]).strip()):
+                    report.warnings.append(f"{table} row {t['id']}: date {t['date']!r} is not YYYY-MM-DD - skipped")
+                    continue
                 conn.execute(
                     "INSERT INTO transactions (customer_id, date, description, amount, type, tag,"
                     " legacy_id, created_by)"
@@ -123,9 +148,9 @@ def _migrate_accounts(path: Path, conn: sqlite3.Connection, report: MigrationRep
                         c["id"],
                         str(t["date"]).strip(),
                         t["description"] or "",
-                        _num(t["amount"]),
-                        _clean_type(t["type"]),
-                        _clean_tag(t["tags"]),
+                        _num(t["amount"], f"{table} row {t['id']}", report),
+                        _clean_type(t["type"], f"{table} row {t['id']}", report),
+                        _clean_tag(t["tags"], f"{table} row {t['id']}", report),
                         t["id"],
                     ),
                 )
@@ -156,12 +181,12 @@ def _migrate_inventory(path: Path, conn: sqlite3.Connection, report: MigrationRe
                 (
                     it["id"],
                     (it["name"] or "").strip(),
-                    _num(it["stock_value"]),
-                    _num(it["last_value"]),
+                    _num(it["stock_value"], f"items row {it['id']} stock_value", report),
+                    _num(it["last_value"], f"items row {it['id']} last_value", report),
                     str(col(it, "unit", "PCS")),
                     str(col(it, "batch", "NA")),
                     str(col(it, "expiry_date", "NA")),
-                    _num(col(it, "gst_rate", 0)),
+                    _num(col(it, "gst_rate", 0), f"items row {it['id']} gst_rate", report),
                     str(col(it, "item_type", "S")),
                     pk,
                 ),
@@ -174,6 +199,9 @@ def _migrate_inventory(path: Path, conn: sqlite3.Connection, report: MigrationRe
                 if not t["date"]:
                     report.warnings.append(f"{table} row {t['id']} has no date - skipped")
                     continue
+                if not DATE_RE.fullmatch(str(t["date"]).strip()):
+                    report.warnings.append(f"{table} row {t['id']}: date {t['date']!r} is not YYYY-MM-DD - skipped")
+                    continue
                 conn.execute(
                     "INSERT INTO item_transactions (item_id, date, received, sale, description, tags,"
                     " legacy_id, created_by)"
@@ -181,8 +209,8 @@ def _migrate_inventory(path: Path, conn: sqlite3.Connection, report: MigrationRe
                     (
                         it["id"],
                         str(t["date"]).strip(),
-                        _num(t["received"]),
-                        _num(t["sale"]),
+                        _num(t["received"], f"{table} row {t['id']} received", report),
+                        _num(t["sale"], f"{table} row {t['id']} sale", report),
                         t["description"] or "",
                         t["tags"] or "",
                         t["id"],
@@ -202,7 +230,12 @@ def _migrate_krar(path: Path, conn: sqlite3.Connection, report: MigrationReport)
         known = {r[0] for r in conn.execute("SELECT id FROM customers").fetchall()}
         for k in src.execute("SELECT krar_id, customer_id, is_nill FROM all_krar ORDER BY krar_id"):
             if k["customer_id"] not in known:
-                report.warnings.append(f"krar {k['krar_id']} references missing customer {k['customer_id']} - skipped")
+                state = "settled" if k["is_nill"] else "OPEN"
+                report.warnings.append(
+                    f"krar {k['krar_id']} ({state}) references customer {k['customer_id']} which no longer exists"
+                    " - skipped (check the audit log for '06 = accounts.db, customers, "
+                    f"{k['customer_id']}')"
+                )
                 continue
             conn.execute(
                 "INSERT INTO krar (id, customer_id, is_nill) VALUES (?, ?, ?)",
@@ -212,6 +245,9 @@ def _migrate_krar(path: Path, conn: sqlite3.Connection, report: MigrationReport)
         krar_ids = {r[0] for r in conn.execute("SELECT id FROM krar").fetchall()}
         for d in src.execute("SELECT uid, kid, date FROM by_krar_id ORDER BY uid"):
             if d["kid"] not in krar_ids or not d["date"]:
+                continue
+            if not DATE_RE.fullmatch(str(d["date"]).strip()):
+                report.warnings.append(f"by_krar_id row {d['uid']}: date {d['date']!r} is not YYYY-MM-DD - skipped")
                 continue
             conn.execute(
                 "INSERT INTO krar_dates (id, krar_id, date) VALUES (?, ?, ?)",

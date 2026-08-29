@@ -11,6 +11,7 @@ from hth.domain.models import User
 from hth.services.accounts import AccountsService
 from hth.services.audit import AuditService
 from hth.services.auth import AuthService
+from hth.services.integrity import IntegrityService
 from hth.services.inventory import InventoryService
 from hth.services.krar import KrarService
 from hth.services.permissions import Permission, has_permission
@@ -34,6 +35,7 @@ class AppContext:
     reports: ReportsService = field(init=False)
     audit: AuditService = field(init=False)
     auth: AuthService = field(init=False)
+    integrity: IntegrityService = field(init=False)
 
     def __post_init__(self) -> None:
         self.accounts = AccountsService(self.db)
@@ -43,6 +45,7 @@ class AppContext:
         self.reports = ReportsService(self.db)
         self.audit = AuditService(self.db)
         self.auth = AuthService(self.db)
+        self.integrity = IntegrityService(self.db)
 
     @property
     def username(self) -> str:

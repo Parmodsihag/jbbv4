@@ -146,7 +146,9 @@ class DataTable(ctk.CTkFrame):
             tags = ["odd" if i % 2 else "even"]
             if self._row_tags:
                 tags.extend(self._row_tags(row))
-            values = [_fmt(v, c.kind) for v, c in zip(row, self.columns, strict=True)]
+            # Rows may carry hidden trailing values (ids used by double-click handlers),
+            # so only the first len(columns) values are rendered.
+            values = [_fmt(v, c.kind) for v, c in zip(row, self.columns, strict=False)]
             self.tree.insert("", "end", iid=str(i), values=values, tags=tags)
         for idx, col in enumerate(self.columns):
             marker = ""

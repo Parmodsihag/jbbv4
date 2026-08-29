@@ -76,7 +76,7 @@ def test_migrate_preserves_ids_and_balances(db, tmp_path):
         2,
     )
     assert report.krars == 1 and report.krar_dates == 2 and report.audit_entries == 2
-    assert any("missing customer 99" in w for w in report.warnings)
+    assert any("customer 99 which no longer exists" in w for w in report.warnings)
 
     acc = AccountsService(db)
     assert acc.get_customer(5).name == "SHYAM"
@@ -102,3 +102,29 @@ def test_migrate_preserves_ids_and_balances(db, tmp_path):
 def test_missing_folder(db, tmp_path):
     with pytest.raises(MigrationError):
         migrate(tmp_path / "nope", db)
+
+
+def test_migration_reports_normalised_values(db, tmp_path):
+    make_v3(tmp_path)
+    a = sqlite3.connect(tmp_path / "accounts.db")
+    a.executescript(
+        """
+        INSERT INTO customer_1 (date, description, amount, type, tags) VALUES
+          ('2025-08-01', 'blank amount', '', 'P', '1'),
+          ('2025-08-02', 'odd tag', 5, 'P', 'x'),
+          ('2025-08-03', 'odd type', 5, 'Q', '1'),
+          ('01-09-2025', 'bad date', 5, 'P', '1');
+        """
+    )
+    a.commit()
+    a.close()
+    report = migrate(tmp_path, db)
+    text = "\n".join(report.warnings)
+    assert "customer_1 row 6: amount is blank" in text
+    assert "customer_1 row 7: tag 'x'" in text
+    assert "customer_1 row 8: type 'Q'" in text
+    assert "customer_1 row 9: date '01-09-2025'" in text
+    assert "customer_5 row 1: tag ''" in text  # the blank tag in the base fixture
+    assert "krar 63" not in text and "customer 99" in text
+    out = report.write(tmp_path / "r.txt")
+    assert "warnings:" in out.read_text()

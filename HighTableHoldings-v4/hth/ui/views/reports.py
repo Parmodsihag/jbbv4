@@ -42,6 +42,8 @@ class ReportSpec:
     row_tags: Callable[[Sequence], Sequence[str]] | None = None
     open_customer_col: int | None = None  # double-click opens this customer's ledger
     open_item_col: int | None = None
+    # custom double-click: row -> (view key, kwargs) or None
+    open_row: Callable[[Sequence], tuple[str, dict] | None] | None = None
 
 
 # --- report bodies ------------------------------------------------------------------------
@@ -178,6 +180,22 @@ def _audit(ctx, p):
         for e in ctx.audit.entries(p["from"], p["to"], code, p["search"] or None, 5000)
     ]
     return rows, f"{len(rows)} entries"
+
+
+def _datacheck(ctx, p):
+    findings = ctx.integrity.run()
+    rows = [f.as_row() for f in findings]
+    counts = {s: sum(1 for f in findings if f.severity == s) for s in ("ERROR", "WARN", "INFO")}
+    return rows, f"{counts['ERROR']} errors · {counts['WARN']} warnings · {counts['INFO']} info"
+
+
+def _open_finding(row):
+    area, ref = row[1], int(row[2])
+    if area in ("Customer", "Krar"):
+        return "customers", {"customer_id": ref}
+    if area == "Item":
+        return "items", {"item_id": ref}
+    return None
 
 
 AUDIT_CODES = ["All"] + [f"{c.value} {c.label}" for c in AuditCode]
@@ -423,6 +441,23 @@ REPORTS: list[ReportSpec] = [
         ],
         permission=Permission.VIEW_AUDIT,
     ),
+    ReportSpec(
+        "datacheck",
+        "Data check",
+        "Admin",
+        [
+            Column("sev", "Severity", 80),
+            Column("area", "Area", 90),
+            Column("ref", "ID", 60, "e", "int"),
+            Column("name", "Name", 200),
+            Column("issue", "Issue", 260),
+            Column("detail", "Detail", 360, stretch=True),
+        ],
+        _datacheck,
+        permission=Permission.VIEW_AUDIT,
+        row_tags=lambda r: ["neg"] if r[0] == "ERROR" else (["warn"] if r[0] == "WARN" else ["muted"]),
+        open_row=_open_finding,
+    ),
 ]
 
 
@@ -569,6 +604,11 @@ class ReportsView(BaseView):
 
     def _open_row(self, row) -> None:
         if not self.spec:
+            return
+        if self.spec.open_row is not None:
+            target = self.spec.open_row(row)
+            if target:
+                self.ctx.navigate(target[0], **target[1])
             return
         if self.spec.open_customer_col is not None and self.ctx.can(Permission.ADD_CUSTOMER):
             self.ctx.navigate("customers", customer_id=int(row[self.spec.open_customer_col]))

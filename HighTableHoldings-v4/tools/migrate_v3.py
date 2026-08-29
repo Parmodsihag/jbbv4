@@ -37,8 +37,12 @@ def main() -> int:
     except MigrationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    out = report.write(settings.data_dir / "migration_report.txt")
     print(f"Imported into {settings.db_path}")
-    print("\n".join(report.as_lines()))
+    print("\n".join(report.as_lines()[:8]))
+    if report.warnings:
+        print(f"... {len(report.warnings)} warning(s); full list in {out}")
+        print("Review them against the audit log (Reports -> Audit log) and fix via the ledger screens.")
     return 0
 
 

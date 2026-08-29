@@ -40,6 +40,15 @@ python tools/migrate_v3.py C:/JBB/data
 Customer, item and krar IDs are preserved. Every v3 daily note becomes an audit-log entry.
 Balances after import match v3 for the same date (see `tests/test_migration.py`).
 
+The importer never guesses silently: every value it had to skip or normalise (blank or odd
+tag, type not P/M, blank amount, date not `YYYY-MM-DD`, krar for a deleted customer) is
+listed with its v3 table and row id in `<data folder>/migration_report.txt`. Work through
+that list with **Reports → Audit log** (the v3 daily notes, searchable by customer name or
+date) and correct entries from the ledger screens. Then run **Reports → Data check**, or
+`python tools/check_data.py`, which flags invalid dates, negative stock, duplicate
+customers, zero-amount or future-dated entries, lone settlement rows, open krar with
+nothing owed, and long-inactive debtors.
+
 ### Where the data lives
 
 One SQLite file, `hth.db`, plus `exports/`, `backups/` and `logs/` next to it:
@@ -135,6 +144,7 @@ Built in (all exportable to Excel, all sortable by clicking a column):
 |           | Dead stock                    | days without a sale   |
 | Krar      | Krar list                     | bucket                |
 | Admin     | Audit log                     | date range, action, search |
+|           | Data check                    | – (double-click a finding to open the record) |
 
 Adding a report is one `ReportSpec` entry in `hth/ui/views/reports.py`; the query goes in
 `hth/services/reports.py`.
@@ -167,7 +177,8 @@ Ideas that fit the data you already have, roughly in order of value to the shop:
 
 ```
 run.py                      launcher
-tools/migrate_v3.py         v3 → v4 import
+tools/migrate_v3.py         v3 → v4 import (writes migration_report.txt)
+tools/check_data.py         data-quality findings for the live database
 hth/
   config.py                 data folder resolution, Settings
   logging_setup.py          rotating file log in <data>/logs
@@ -175,7 +186,7 @@ hth/
   db/schema.py              versioned migrations (PRAGMA user_version)
   domain/                   constants, interest formula, dataclasses (no I/O)
   services/                 business logic: accounts, inventory, sales, krar, reports,
-                            audit, auth, permissions, export
+                            audit, auth, permissions, export, integrity (data checks)
   migration/from_v3.py      legacy importer
   ui/                       customtkinter app: theme, widgets, views, app shell
   modules/                  optional feature modules (bills, crop trading) – see README there

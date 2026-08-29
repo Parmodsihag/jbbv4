@@ -157,5 +157,14 @@ class SettingsView(BaseView):
         except Exception as exc:  # noqa: BLE001
             self.ctx.toast(f"Import failed: {exc}", "error")
             return
-        info(self, "Import complete", "\n".join(report.as_lines()))
+        out = report.write(self.ctx.settings.data_dir / "migration_report.txt")
+        lines = report.as_lines()
+        summary = "\n".join(lines[:8])
+        if report.warnings:
+            summary += (
+                f"\n\n{len(report.warnings)} value(s) were skipped or normalised. The full list is in\n{out}\n\n"
+                "Cross-check them with Reports -> Audit log and fix them from the ledger screens, "
+                "then run Reports -> Data check."
+            )
+        info(self, "Import complete", summary)
         self.ctx.audit.log("09", "imported v3 data", self.ctx.username)

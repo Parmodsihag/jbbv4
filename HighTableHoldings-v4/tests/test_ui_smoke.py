@@ -38,6 +38,9 @@ def test_admin_and_employee_walkthrough(app):
     ctx = app.ctx
     c = ctx.accounts.add_customer("RAM", "X", 1000, "2026-01-01")
     item = ctx.inventory.add_item("UREA", 260, 300, opening_quantity=10)
+    # open krar -> the dashboard and karar tables get rows with hidden trailing ids
+    ctx.krar.add_or_update(c.id, "2026-01-05")
+    ctx.krar.add_or_update(ctx.accounts.add_customer("SHYAM", "Y", 0).id, "2099-01-01")
 
     app._login.username.set("admin")
     app._login.password.set("admin")
