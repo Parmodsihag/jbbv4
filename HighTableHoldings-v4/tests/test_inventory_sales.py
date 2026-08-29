@@ -86,3 +86,32 @@ def test_sale_validation(accounts, sales):
         sales.record("P", "2026-08-01", c.id, "", 1, 1, "1", "u")
     with pytest.raises(ValidationError):
         sales.record("Z", "2026-08-01", c.id, "x", 1, 1, "1", "u")
+
+
+def test_loose_sale_in_grams_converts_to_stock_unit(accounts, inventory, sales):
+    c = accounts.add_customer("ram", "", 0)
+    seed = inventory.add_item("wheat seed", 40, 48, unit="KG", opening_quantity=5)
+    res = sales.record("P", "2026-08-01", c.id, seed.display, 250, 48, "2", "emp1", item_id=seed.id, unit="G")
+    assert res.stock_quantity == 0.25 and res.stock_unit == "KG"
+    assert res.amount == 12.0  # 48 per KG * 0.25 KG
+    assert inventory.quantity(seed.id) == 4.75
+    tx = accounts.get_transactions(c.id)[0]
+    assert tx.description == f"250 G (0.25 KG) = {seed.display}" and tx.amount == 12.0
+
+
+def test_sale_in_quintals_and_fractional_price(accounts, inventory, sales):
+    c = accounts.add_customer("ram", "", 0)
+    crop = inventory.add_item("mustard", 5000, 5500, unit="KG", opening_quantity=0)
+    sales.record("M", "2026-08-01", c.id, crop.display, 2.5, 55.75, "2", "emp1", item_id=crop.id, unit="QTL")
+    assert inventory.quantity(crop.id) == 250
+    assert inventory.get_last_value(crop.id) == 55.75
+    assert accounts.get_transactions(c.id)[0].amount == round(55.75 * 250, 2)
+
+
+def test_incompatible_unit_rejected(accounts, inventory, sales):
+    c = accounts.add_customer("ram", "", 0)
+    item = inventory.add_item("urea", 260, 300, unit="BAG", opening_quantity=10)
+    with pytest.raises(ValidationError):
+        sales.record("P", "2026-08-01", c.id, item.display, 1, 300, "2", "emp1", item_id=item.id, unit="KG")
+    with pytest.raises(ValidationError):
+        sales.record("P", "2026-08-01", c.id, item.display, 0, 300, "2", "emp1", item_id=item.id)

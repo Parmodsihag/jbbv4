@@ -97,6 +97,10 @@ def test_admin_and_employee_walkthrough(app):
     app._login.submit()
     _pump(app)
     assert "users" not in app._nav_buttons
+    assert "bills" in app._nav_buttons  # employees may create invoices
+    app.navigate("bills")
+    _pump(app, 30)
+    assert not hasattr(app._views["bills"], "batch")  # ...but not run the month batch
     app.navigate("users")  # silently refused
     assert app._active != "users"
     app.navigate("reports")

@@ -112,6 +112,61 @@ MIGRATIONS: list[tuple[int, str]] = [
         );
         """,
     ),
+    (
+        2,
+        # bills module (hth/modules/bills)
+        """
+        CREATE TABLE IF NOT EXISTS bill_month_items (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_year  TEXT NOT NULL,
+            item_id     INTEGER,
+            name        TEXT NOT NULL,
+            unit        TEXT NOT NULL DEFAULT '',
+            rate        REAL NOT NULL DEFAULT 0,
+            item_type   TEXT NOT NULL DEFAULT 'O',
+            start_date  TEXT NOT NULL,
+            batch       TEXT NOT NULL DEFAULT 'NA',
+            expiry_date TEXT NOT NULL DEFAULT 'NA',
+            quantity    REAL NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS ix_bmi_month ON bill_month_items(month_year);
+
+        CREATE TABLE IF NOT EXISTS bills (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            bill_number      INTEGER NOT NULL UNIQUE,
+            date             TEXT NOT NULL,
+            customer_name    TEXT NOT NULL,
+            customer_address TEXT NOT NULL DEFAULT '',
+            customer_id      INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+            taxable          REAL NOT NULL DEFAULT 0,
+            cgst             REAL NOT NULL DEFAULT 0,
+            sgst             REAL NOT NULL DEFAULT 0,
+            grand_total      REAL NOT NULL DEFAULT 0,
+            source           TEXT NOT NULL DEFAULT 'manual',
+            docx_path        TEXT,
+            created_by       TEXT,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_bills_date ON bills(date);
+
+        CREATE TABLE IF NOT EXISTS bill_lines (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            bill_id     INTEGER NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            unit        TEXT NOT NULL DEFAULT '',
+            batch       TEXT NOT NULL DEFAULT 'NA',
+            expiry_date TEXT NOT NULL DEFAULT 'NA',
+            rate        REAL NOT NULL,
+            item_type   TEXT NOT NULL DEFAULT 'O',
+            quantity    REAL NOT NULL,
+            amount      REAL NOT NULL,
+            gst_rate    REAL NOT NULL DEFAULT 0,
+            cgst        REAL NOT NULL DEFAULT 0,
+            sgst        REAL NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS ix_bill_lines_bill ON bill_lines(bill_id);
+        """,
+    ),
 ]
 
 

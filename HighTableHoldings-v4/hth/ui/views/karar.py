@@ -34,7 +34,7 @@ class KararView(BaseView):
         self.grid_columnconfigure(1, weight=5, uniform="k")
         self.grid_rowconfigure(0, weight=1)
 
-        left = ctk.CTkFrame(self, fg_color="transparent")
+        left = ctk.CTkScrollableFrame(self, fg_color="transparent")
         left.grid(row=0, column=0, sticky="nsew", padx=(4, 8), pady=4)
 
         add = Card(left, "Add / reschedule krar")

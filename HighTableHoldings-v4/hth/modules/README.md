@@ -41,9 +41,13 @@ Rules that keep modules independent:
 * Gate every screen and every destructive action with a `Permission`.
 * Write to the audit log through `ctx.audit.log(code, message, ctx.username)`.
 
-## Planned
+## Modules
 
-| module         | v3 source            | notes                                                           |
-|----------------|----------------------|-----------------------------------------------------------------|
-| bills          | `bills/`             | GST invoices from a DOCX template, PDF conversion & merging.    |
-| crop_trading   | `database/crop_database.py`, `gui/crop_trading.py` | farmers, crops, purchases, sales, weighted-average stock. |
+| module         | status  | v3 source            | notes                                                        |
+|----------------|---------|----------------------|--------------------------------------------------------------|
+| bills          | done    | `bills/`             | GST invoices from the v3 DOCX template, PDF conversion & merge, month batch. |
+| crop_trading   | planned | `database/crop_database.py`, `gui/crop_trading.py` | farmers, crops, purchases, sales in QTL/KG/G, weighted-average stock. Use `hth.domain.units`. |
+
+`bills/` is the reference implementation: `service.py` (pure rules + storage, fully tested
+in `tests/modules/test_bills.py`), `views.py` (one `BaseView` with tab panels), a schema
+migration in `hth/db/schema.py`, and `MODULE = ModuleSpec(...)` in `__init__.py`.

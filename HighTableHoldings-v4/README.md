@@ -90,7 +90,11 @@ button checks it, and every write records the acting user in the audit log.
   monthly debits vs credits, receivables by age, top 10 debtors, and the krar list.
 * **Sales** – sale or receive against an account; item search auto-fills the last price;
   live amount preview; today's entries on the right. `Ctrl+Enter` = sale,
-  `Ctrl+Shift+Enter` = receive.
+  `Ctrl+Shift+Enter` = receive. **Loose sales:** quantities are fractional and can be
+  entered in any unit compatible with the item's stock unit — 100 G of a KG item, 2.5 QTL of
+  a crop kept in KG, 500 ML of a LTR bottle. Price is always per stock unit. Set seed / crop
+  / liquid items to `KG` / `LTR` when you add them so they can be split.
+* **Bills** – GST tax invoices (see *Bills module* below).
 * **Accounts** – create customers; searchable list with balance, days since activity and
   score; double-click for the full ledger (interest, debit, credit, running balance).
   Admins add / edit / delete entries from the ledger.
@@ -114,7 +118,8 @@ button checks it, and every write records the acting user in the audit log.
 | Tags | `1` normal (earns interest), `2` no interest, `0` settlement marker. |
 | Balance | Sum over entries **after the last tag-0 row** (ordered by date, then id): `P` adds, `M` subtracts, tag-1 amounts include interest to today. |
 | Settlement | A sale/receipt with tag 0 writes three tag-0 rows: the entry, *Settled Amount* (balance before) and *Discount* (difference). The period restarts at zero. |
-| Stock | `in stock = Σ received − Σ sold`. A sale/receipt against a stock item writes a movement and sets the item's *last price*. |
+| Stock | `in stock = Σ received − Σ sold`, in the item's own unit. A sale/receipt against a stock item writes a movement and sets the item's *last price*. Quantities are fractional (v3 truncated to whole numbers). |
+| Units | Mass: `G` `KG` `QTL` (1 QTL = 100 KG). Volume: `ML` `LTR`. Count: `PCS` `BAG` `BOX` `PKT` `BTL` (not convertible). `hth/domain/units.py`. |
 | Days / score | *Days* = days since the newest non-settlement entry. *Score* = `0.6·norm(log amount) + 0.4·norm(log days)`. |
 | Audit codes | `01` account added, `02` item added, `03` sale, `04` receive, `05` modify, `06` delete, plus new `07` krar, `08` login, `09` user/admin. |
 
@@ -212,9 +217,32 @@ pip install pyinstaller
 pyinstaller --noconfirm --windowed --name HighTableHoldings run.py
 ```
 
-## Deferred to separate modules
+## Bills module
 
-`bills` (GST invoices) and `crop_trading` from v3 are intentionally **not** in the v4 core.
-They will be rebuilt as independent modules under `hth/modules/` — see
-[hth/modules/README.md](hth/modules/README.md) for the contract. v3 keeps working for
-those two functions in the meantime.
+`hth/modules/bills/` — the first feature module, rebuilt from v3's `bills/` package.
+Sidebar entry **Bills** (`Alt+B`); employees can create and print invoices, only admins run
+the month batch or delete a month.
+
+* **New invoice** – pick a customer (or type a name), add lines from stock or free text,
+  see taxable / CGST / SGST / total live, *Save & create DOCX* (or *Save & make PDF* when
+  Microsoft Word is available).
+* **Browse** – bills by month, search by number or name, lines of the selected bill, open
+  DOCX, make PDF, *PDF + merge range* (`from`–`to` numbers → one PDF), delete.
+* **Month batch** (admin) – enter each item's total sold in the month with its sell-from
+  date, choose the number of bills and the start number, and generate: the totals are split
+  at random over the month's dates with random customer names (address *Dhansu*), exactly as
+  v3 did, and every bill is rendered. Bills of ₹20,000 or more are created but flagged, not
+  rendered.
+
+Rules carried over from v3: CGST = SGST = 9 % for type **P**, 2.5 % for **F**, 0 for
+**S/O**; tax rounded to 2 dp; total = taxable + CGST + SGST; amount in Hindi words; the v3
+DOCX template is used unchanged (`hth/modules/bills/templates/invoice.docx`).
+
+Files go to `<data>/bills/<number>.docx`, `<data>/pdfs/`, `<data>/merged_pdfs/`.
+PDF needs `pip install docx2pdf` **and** Microsoft Word on the PC; DOCX works everywhere.
+
+## Deferred: crop trading
+
+`crop_trading` from v3 is intentionally **not** in the v4 core and will be its own module
+under `hth/modules/` (contract in [hth/modules/README.md](hth/modules/README.md)). It will
+reuse the units module (quintal / kg / gram) and the weighted-average stock rules from v3.

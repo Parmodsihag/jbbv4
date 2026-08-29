@@ -1,3 +1,7 @@
 customtkinter>=5.2
 matplotlib>=3.7
 openpyxl>=3.1
+docxtpl>=0.16
+pypdf>=4
+# optional, Windows/macOS with Microsoft Word - DOCX -> PDF:
+# docx2pdf>=0.1.8

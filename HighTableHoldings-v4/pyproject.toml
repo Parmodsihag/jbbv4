@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "high-table-holdings"
-version = "4.0.1"
+version = "4.1.0"
 description = "Accounting and inventory management for Jaat Beaj Bhander"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,16 +13,22 @@ dependencies = [
     "customtkinter>=5.2",
     "matplotlib>=3.7",
     "openpyxl>=3.1",
+    "docxtpl>=0.16",
+    "pypdf>=4",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.4"]
+pdf = ["docx2pdf>=0.1.8"]  # DOCX -> PDF through Microsoft Word (Windows / macOS)
 
 [project.scripts]
 hth = "hth.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["hth*"]
+
+[tool.setuptools.package-data]
+"hth.modules.bills" = ["templates/*.docx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -23,7 +23,7 @@ class KpiTile(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(side="left", fill="both", expand=True, padx=(10, 12), pady=10)
         ctk.CTkLabel(body, text=title, font=theme.font(12), text_color=theme.color("muted"), anchor="w").pack(fill="x")
-        self.value_label = ctk.CTkLabel(body, text=value, font=theme.font(22, "bold"), anchor="w")
+        self.value_label = ctk.CTkLabel(body, text=value, font=theme.font(20, "bold"), anchor="w")
         self.value_label.pack(fill="x")
         self.sub_label = ctk.CTkLabel(
             body, text=subtitle, font=theme.font(11), text_color=theme.color("muted"), anchor="w"

@@ -15,6 +15,8 @@ from hth.ui.widgets.datatable import Column, DataTable
 from hth.ui.widgets.forms import secondary_button
 from hth.ui.widgets.kpi import KpiTile
 
+CHART_H = 250  # chart body height in px
+
 
 class DashboardView(BaseView):
     key = "dashboard"
@@ -23,17 +25,20 @@ class DashboardView(BaseView):
 
     def build(self) -> None:
         self._data: dict | None = None
-        self.grid_columnconfigure((0, 1), weight=3, uniform="c")
-        self.grid_columnconfigure(2, weight=2, uniform="c")
-        self.grid_rowconfigure((2, 3), weight=1)
+        # Everything lives in a scrollable body with fixed-height cards, so nothing is
+        # squeezed or overlapped on small screens - it scrolls instead.
+        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+        body.grid_columnconfigure((0, 1), weight=3, uniform="c")
+        body.grid_columnconfigure(2, weight=2, uniform="c")
 
-        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar = ctk.CTkFrame(body, fg_color="transparent")
         bar.grid(row=0, column=0, columnspan=3, sticky="ew", padx=4, pady=(0, 8))
         self.refreshed = ctk.CTkLabel(bar, text="", font=theme.font(12), text_color=theme.color("muted"))
         self.refreshed.pack(side="left")
         secondary_button(bar, "↻ Refresh", self.reload, width=110).pack(side="right")
 
-        tiles = ctk.CTkFrame(self, fg_color="transparent")
+        tiles = ctk.CTkFrame(body, fg_color="transparent")
         tiles.grid(row=1, column=0, columnspan=3, sticky="ew", padx=0, pady=(0, 10))
         for i in range(6):
             tiles.grid_columnconfigure(i, weight=1, uniform="k")
@@ -46,16 +51,17 @@ class DashboardView(BaseView):
         for i, t in enumerate((self.k_recv, self.k_pay, self.k_cust, self.k_stock, self.k_krar, self.k_today)):
             t.grid(row=0, column=i, sticky="ew", padx=4)
 
-        self.c_activity = ChartCard(self, "Activity - last 14 days")
+        self.c_activity = ChartCard(body, "Activity - last 14 days", height=CHART_H)
         self.c_activity.grid(row=2, column=0, sticky="nsew", padx=4, pady=4)
-        self.c_flow = ChartCard(self, "Debits vs credits - last 12 months")
+        self.c_flow = ChartCard(body, "Debits vs credits - last 12 months", height=CHART_H)
         self.c_flow.grid(row=2, column=1, sticky="nsew", padx=4, pady=4)
-        self.c_aging = ChartCard(self, "Receivables by age")
+        self.c_aging = ChartCard(body, "Receivables by age", height=CHART_H)
         self.c_aging.grid(row=3, column=0, sticky="nsew", padx=4, pady=4)
-        self.c_top = ChartCard(self, "Top 10 debtors")
+        self.c_top = ChartCard(body, "Top 10 debtors", height=CHART_H)
         self.c_top.grid(row=3, column=1, sticky="nsew", padx=4, pady=4)
 
-        krar_card = ctk.CTkFrame(self, fg_color=theme.color("surface"), corner_radius=10)
+        krar_card = ctk.CTkFrame(body, fg_color=theme.color("surface"), corner_radius=10, height=2 * CHART_H + 8)
+        krar_card.grid_propagate(False)
         krar_card.grid(row=2, column=2, rowspan=2, sticky="nsew", padx=4, pady=4)
         ctk.CTkLabel(krar_card, text="Krar (promised payments)", font=theme.font(14, "bold"), anchor="w").pack(
             fill="x", padx=14, pady=(10, 4)

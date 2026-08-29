@@ -21,7 +21,9 @@ def qty(value: float | None) -> str:
     if value is None or value == "":
         return ""
     v = float(value)
-    return f"{int(v):,}" if v.is_integer() else f"{v:,.2f}"
+    if v.is_integer():
+        return f"{int(v):,}"
+    return f"{v:,.3f}".rstrip("0").rstrip(".")
 
 
 def today_str() -> str:

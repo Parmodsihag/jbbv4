@@ -55,4 +55,7 @@ class AuditCode(str, Enum):
 
 ITEM_TYPES = ["F", "P", "S", "O"]  # fertiliser, pesticide, seed, other (v3 convention)
 PAKKA_KACHA = ["P", "K"]
-UNITS = ["PCS", "KG", "LTR", "BAG", "BOX", "PKT"]
+
+from hth.domain.units import ALL_UNITS  # noqa: E402  (units module has no back-dependency)
+
+UNITS = ALL_UNITS  # stock units offered in the UI

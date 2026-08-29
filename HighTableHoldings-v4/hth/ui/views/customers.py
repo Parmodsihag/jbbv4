@@ -40,8 +40,8 @@ class CustomersView(BaseView):
         # --- new account form
         form = Card(self, "New account")
         form.grid(row=0, column=0, sticky="nsew", padx=(4, 8), pady=4)
-        inner = ctk.CTkFrame(form, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=18, pady=(4, 16))
+        inner = ctk.CTkScrollableFrame(form, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         self.name = LabeledEntry(inner, "Name", placeholder="Customer name")
         self.name.pack(fill="x", pady=4)
         self.details = LabeledEntry(inner, "Other details", placeholder="Village / father's name / phone")

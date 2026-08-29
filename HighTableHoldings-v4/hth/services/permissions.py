@@ -21,6 +21,8 @@ class Permission(str, Enum):
     MANAGE_USERS = "manage_users"
     MANAGE_SETTINGS = "manage_settings"
     BACKUP = "backup"
+    BILLING = "billing"  # create / view / print invoices
+    BILLING_BATCH = "billing_batch"  # month-end batch generation, deleting a month
 
 
 ROLES: dict[str, str] = {"admin": "Administrator", "employee": "Employee"}
@@ -36,6 +38,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.MANAGE_KRAR,
             Permission.VIEW_REPORTS,
             Permission.EXPORT,
+            Permission.BILLING,
         }
     ),
 }

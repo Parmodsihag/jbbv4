@@ -38,8 +38,8 @@ class ItemsView(BaseView):
 
         form = Card(self, "New item")
         form.grid(row=0, column=0, sticky="nsew", padx=(4, 8), pady=4)
-        inner = ctk.CTkFrame(form, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=18, pady=(4, 16))
+        inner = ctk.CTkScrollableFrame(form, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         inner.grid_columnconfigure((0, 1), weight=1)
 
         self.name = LabeledEntry(inner, "Item name")
@@ -54,7 +54,7 @@ class ItemsView(BaseView):
         self.stock_value.grid(row=3, column=0, sticky="ew", pady=4, padx=(0, 6))
         self.last_value = LabeledEntry(inner, "Last sale price", placeholder="0.00")
         self.last_value.grid(row=3, column=1, sticky="ew", pady=4, padx=(6, 0))
-        self.unit = LabeledOption(inner, "Unit", UNITS)
+        self.unit = LabeledOption(inner, "Stock unit (KG/LTR for loose sales)", UNITS)
         self.unit.grid(row=4, column=0, sticky="ew", pady=4, padx=(0, 6))
         self.batch = LabeledEntry(inner, "Batch", default="NA")
         self.batch.grid(row=4, column=1, sticky="ew", pady=4, padx=(6, 0))

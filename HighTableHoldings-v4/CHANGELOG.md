@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.1.0 — 2026-08-29
+
+- **Bills module** (`hth/modules/bills`): manual GST invoices, browse / open / PDF / merge,
+  admin month-end batch generation — rebuilt from v3 with the same tax rules, Hindi amount
+  in words and the same DOCX template. New permissions `billing` (all users) and
+  `billing_batch` (admin). Schema migration 2 adds `bills`, `bill_lines`,
+  `bill_month_items`.
+- **Fractional quantities and units**: sell 100 G of a KG item or 2.5 QTL of a KG crop;
+  the quantity is converted to the item's stock unit, stock and last price are no longer
+  truncated to whole numbers. Unit picker on the Sales screen; new units G, QTL, ML, BTL.
+- **Layout**: dashboard, Sales / Accounts / Items / Karar forms and the Bills panels are
+  scrollable with fixed-height cards, so buttons are never pushed off-screen and charts no
+  longer overlap on small displays.
+- Typing an exact item label on the Sales screen adopts its unit and price like a click.
+
 ## 4.0.1 — 2026-08-29
 
 - Fix: tables with hidden trailing values (dashboard krar list, Karar screen) crashed with
