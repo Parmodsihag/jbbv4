@@ -46,7 +46,7 @@ Rules that keep modules independent:
 | module         | status  | v3 source            | notes                                                        |
 |----------------|---------|----------------------|--------------------------------------------------------------|
 | bills          | done    | `bills/`             | GST invoices from the v3 DOCX template, PDF conversion & merge, month batch. |
-| crop_trading   | planned | `database/crop_database.py`, `gui/crop_trading.py` | farmers, crops, purchases, sales in QTL/KG/G, weighted-average stock. Use `hth.domain.units`. |
+| crop_trading   | done    | `database/crop_database.py`, `gui/crop_trading.py` | lots from farmers (gross/kaat/net, quality), FIFO-costed sales with margin, ledger + stock integration, market rates with a provider interface, valuation, reports. |
 
 `bills/` is the reference implementation: `service.py` (pure rules + storage, fully tested
 in `tests/modules/test_bills.py`), `views.py` (one `BaseView` with tab panels), a schema

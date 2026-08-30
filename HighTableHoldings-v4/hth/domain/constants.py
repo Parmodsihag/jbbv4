@@ -47,13 +47,15 @@ class AuditCode(str, Enum):
     KRAR = "07"
     LOGIN = "08"
     USER = "09"
+    CROP = "10"
+    RATE = "11"
 
     @property
     def label(self) -> str:
         return self.name.replace("_", " ").title()
 
 
-ITEM_TYPES = ["F", "P", "S", "O"]  # fertiliser, pesticide, seed, other (v3 convention)
+ITEM_TYPES = ["F", "P", "S", "C", "O"]  # fertiliser, pesticide, seed, crop (v4), other
 PAKKA_KACHA = ["P", "K"]
 
 from hth.domain.units import ALL_UNITS  # noqa: E402  (units module has no back-dependency)

@@ -23,6 +23,7 @@ class Permission(str, Enum):
     BACKUP = "backup"
     BILLING = "billing"  # create / view / print invoices
     BILLING_BATCH = "billing_batch"  # month-end batch generation, deleting a month
+    CROP_TRADING = "crop_trading"  # purchases from farmers, sales to buyers, rates
 
 
 ROLES: dict[str, str] = {"admin": "Administrator", "employee": "Employee"}
@@ -39,6 +40,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.VIEW_REPORTS,
             Permission.EXPORT,
             Permission.BILLING,
+            Permission.CROP_TRADING,
         }
     ),
 }

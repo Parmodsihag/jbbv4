@@ -167,6 +167,74 @@ MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS ix_bill_lines_bill ON bill_lines(bill_id);
         """,
     ),
+    (
+        3,
+        """
+        -- crop trading module (hth/modules/crop_trading)
+        CREATE TABLE IF NOT EXISTS crop_lots (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            date          TEXT NOT NULL,
+            farmer_id     INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+            item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
+            gross_qty     REAL NOT NULL,
+            deduction_qty REAL NOT NULL DEFAULT 0,
+            qty           REAL NOT NULL,            -- net = gross - deduction, in the item's unit
+            remaining_qty REAL NOT NULL,            -- not yet sold (FIFO)
+            rate          REAL NOT NULL,            -- per item unit
+            amount        REAL NOT NULL,
+            quality       TEXT NOT NULL DEFAULT '',
+            notes         TEXT NOT NULL DEFAULT '',
+            tx_id         INTEGER,                  -- ledger entry (customers credit)
+            stock_tx_id   INTEGER,                  -- item_transactions row
+            created_by    TEXT,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_crop_lots_item ON crop_lots(item_id, date, id);
+        CREATE INDEX IF NOT EXISTS ix_crop_lots_farmer ON crop_lots(farmer_id, date);
+
+        CREATE TABLE IF NOT EXISTS crop_sales (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL,
+            buyer_id    INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+            buyer_name  TEXT NOT NULL DEFAULT 'CASH',
+            item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
+            qty         REAL NOT NULL,
+            rate        REAL NOT NULL,
+            amount      REAL NOT NULL,
+            cost        REAL NOT NULL DEFAULT 0,    -- FIFO cost of the quantity sold
+            margin      REAL NOT NULL DEFAULT 0,    -- amount - cost
+            short_qty   REAL NOT NULL DEFAULT 0,    -- sold without a lot to cost against
+            notes       TEXT NOT NULL DEFAULT '',
+            tx_id       INTEGER,
+            stock_tx_id INTEGER,
+            created_by  TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_crop_sales_item ON crop_sales(item_id, date);
+        CREATE INDEX IF NOT EXISTS ix_crop_sales_buyer ON crop_sales(buyer_id, date);
+
+        CREATE TABLE IF NOT EXISTS crop_sale_lots (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_id   INTEGER NOT NULL REFERENCES crop_sales(id) ON DELETE CASCADE,
+            lot_id    INTEGER REFERENCES crop_lots(id) ON DELETE SET NULL,
+            qty       REAL NOT NULL,
+            cost_rate REAL NOT NULL,
+            cost      REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_crop_sale_lots_sale ON crop_sale_lots(sale_id);
+
+        CREATE TABLE IF NOT EXISTS crop_rates (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            date       TEXT NOT NULL,
+            rate       REAL NOT NULL,               -- market rate per item unit
+            source     TEXT NOT NULL DEFAULT 'manual',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            UNIQUE (item_id, date, source)
+        );
+        CREATE INDEX IF NOT EXISTS ix_crop_rates_item ON crop_rates(item_id, date);
+        """,
+    ),
 ]
 
 

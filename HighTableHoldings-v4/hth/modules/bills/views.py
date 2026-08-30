@@ -55,9 +55,11 @@ class BillsView(BaseView):
                 corner_radius=8,
                 height=36,
             ).pack(fill="x", padx=4, pady=(4, 0))
-        self.tabs = ctk.CTkTabview(
-            self, fg_color=theme.color("surface"), corner_radius=10, segmented_button_font=theme.font(13, "bold")
-        )
+        self.tabs = ctk.CTkTabview(self, fg_color=theme.color("surface"), corner_radius=10)
+        try:  # keyword only exists in customtkinter >= 5.2.x on some builds / 6.x
+            self.tabs._segmented_button.configure(font=theme.font(13, "bold"))  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            pass
         self.tabs.pack(fill="both", expand=True, padx=4, pady=4)
         self.tabs.add("New invoice")
         self.tabs.add("Browse")

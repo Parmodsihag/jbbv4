@@ -105,7 +105,7 @@ button checks it, and every write records the acting user in the audit log.
 * **Users** (admin) – add, reset password, change role, activate / deactivate.
 * **Settings** – light/dark theme, backup, v3 import, change password.
 
-`Alt+D/S/A/I/K/R/U/T` switch screens.
+`Alt+D/S/A/I/K/R/B/C/U/T` switch screens.
 
 ---
 
@@ -241,8 +241,37 @@ DOCX template is used unchanged (`hth/modules/bills/templates/invoice.docx`).
 Files go to `<data>/bills/<number>.docx`, `<data>/pdfs/`, `<data>/merged_pdfs/`.
 PDF needs `pip install docx2pdf` **and** Microsoft Word on the PC; DOCX works everywhere.
 
-## Deferred: crop trading
+## Crop trading module
 
-`crop_trading` from v3 is intentionally **not** in the v4 core and will be its own module
-under `hth/modules/` (contract in [hth/modules/README.md](hth/modules/README.md)). It will
-reuse the units module (quintal / kg / gram) and the weighted-average stock rules from v3.
+`hth/modules/crop_trading/` — sidebar entry **Crop Trade** (`Alt+C`), available to both roles;
+deleting lots/sales needs admin.
+
+How it fits the rest of the system:
+
+* A **crop is an item of type `C`** (stock unit KG; enter QTL / G and it converts), so it
+  appears in Items, stock reports and the Data check like any other item.
+* **Farmers and buyers are customer accounts.** A purchase credits the farmer's ledger (we
+  owe them, tag 2 by default); a sale debits the buyer (or is a cash sale with no ledger
+  entry). *Pay farmer* / *Receive from buyer* are plain ledger entries, so balances, krar and
+  every existing report work unchanged.
+* **Every purchase is a lot** — date, farmer, gross quantity, deduction (*kaat*, v3's
+  k-quantity), net, rate per unit, quality grade (A/B/C/MIX), notes.
+* **Sales are costed FIFO against open lots**: cost, margin and margin % are stored on the
+  sale, and each lot's remaining quantity goes down. The Sale form previews the FIFO cost and
+  margin before you save. Selling more than is in stock is refused unless *Allow selling
+  short* is ticked (the uncovered part is costed at the last purchase rate and flagged).
+* **Stock & rates** — per crop: quantity, lots, cost value, average cost, latest market rate,
+  market value, unrealized gain, and a 7-day straight-line estimate. Enter rates by hand or
+  import a CSV (`crop,date,rate`).
+* **Reports** — Summary (bought, sold, revenue, COGS, margin, stock at cost/market), Margin by
+  crop, Margin by buyer, Purchases by farmer, Purchases by quality, Open lots (with age).
+  Double-click opens the ledger / item. Everything exports to Excel.
+
+### Rate feed and predictor (planned)
+
+`hth/modules/crop_trading/rates.py` defines `RateProvider` — anything with
+`fetch(crops, on_date) -> [RateQuote]`. `CsvRateProvider` is the first one; register an API
+provider (Agmarknet / eNAM / a mandi site) in `PROVIDERS` and the *Fetch today's rates*
+button appears. `estimate_rate()` is a deliberately naive linear trend over the last 30
+quotes — the seam where a real predictor (seasonality, market data) plugs in later; the UI
+already labels it "rough".

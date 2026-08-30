@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.2.0 — 2026-08-30
+
+- **Crop trading module** (`hth/modules/crop_trading`, sidebar *Crop Trade*, `Alt+C`):
+  crops are items of type `C`; farmers and buyers are customer accounts; purchases are lots
+  (gross / deduction / net, rate, quality) that credit the farmer and add stock; sales are
+  FIFO-costed against lots with stored cost, margin and margin %, debit the buyer (or cash)
+  and reduce stock; pay-farmer / receive-from-buyer entries; stock valuation at cost and at
+  the latest market rate with unrealized gain; manual / CSV market rates with a
+  `RateProvider` interface for a future API feed and a naive trend estimate as the predictor
+  seam; reports (summary, margin by crop / buyer, purchases by farmer / quality, open lots).
+  Schema migration 3; new permission `crop_trading` (both roles); item type `C`; audit
+  codes `10` crop, `11` rate.
+- Fix: `CTkTabview(segmented_button_font=...)` is not accepted by customtkinter 5.2.x
+  (the version on the shop PC); the font is now set on the internal segmented button when
+  supported. The full UI walkthrough now runs on both 5.2.2 and 6.0.
+
 ## 4.1.1 — 2026-08-30
 
 - Fix: on laptop screens (≈1366×768) the Bills "Save & create DOCX" button and the
