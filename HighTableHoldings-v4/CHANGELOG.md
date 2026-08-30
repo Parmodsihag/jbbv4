@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.1.1 — 2026-08-30
+
+- Fix: on laptop screens (≈1366×768) the Bills "Save & create DOCX" button and the
+  bill-lines table were squeezed to zero height — tables requested 20 rows and were packed
+  before the buttons. Tables now request 6 rows and grow to fit; action rows and hint labels
+  are anchored to the bottom so they always keep their space (Bills, Accounts, Items, Karar).
+- Bills screen shows a banner with the exact `pip install` command when `docxtpl` / `pypdf`
+  are missing, and rendering fails with a clear message instead of a stack trace.
+
 ## 4.1.0 — 2026-08-29
 
 - **Bills module** (`hth/modules/bills`): manual GST invoices, browse / open / PDF / merge,

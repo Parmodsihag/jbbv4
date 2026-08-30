@@ -44,6 +44,17 @@ class BillsView(BaseView):
 
     def build(self) -> None:
         self.svc = BillsService(self.ctx.db, self.ctx.settings)
+        missing = self.svc.missing_dependencies()
+        if missing:
+            ctk.CTkLabel(
+                self,
+                text=f"Bill rendering is disabled: run   pip install {' '.join(missing)}   and restart.",
+                font=theme.font(13, "bold"),
+                fg_color=theme.color("warning"),
+                text_color=("#FFFFFF", "#0F172A"),
+                corner_radius=8,
+                height=36,
+            ).pack(fill="x", padx=4, pady=(4, 0))
         self.tabs = ctk.CTkTabview(
             self, fg_color=theme.color("surface"), corner_radius=10, segmented_button_font=theme.font(13, "bold")
         )
@@ -145,6 +156,21 @@ class NewInvoicePanel(ctk.CTkFrame):
         ctk.CTkLabel(bar, text="Invoice lines", font=theme.font(17, "bold")).pack(side="left")
         danger_button(bar, "Remove line", self.remove_line, width=110).pack(side="right")
         secondary_button(bar, "Clear", self.clear, width=70).pack(side="right", padx=6)
+        # Bottom rows are packed first so they always keep their space; the table
+        # then expands into whatever remains (a 20-row table used to push them off-screen).
+        actions = ctk.CTkFrame(right, fg_color="transparent")
+        actions.pack(side="bottom", fill="x", padx=12, pady=(6, 12))
+        primary_button(actions, "Save & create DOCX", self.save, width=170).pack(side="left")
+        if word_available():
+            primary_button(actions, "Save & make PDF", lambda: self.save(pdf=True), width=150).pack(side="left", padx=8)
+        ctk.CTkLabel(
+            actions,
+            text=f"Bills of {money(MAX_RENDER_TOTAL)} or more are flagged (cash-sale limit).",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
+        ).pack(side="right")
+        self.total_label = ctk.CTkLabel(right, text="", font=theme.font(15, "bold"), anchor="w")
+        self.total_label.pack(side="bottom", fill="x", padx=14)
         self.table = DataTable(
             right,
             [
@@ -161,19 +187,6 @@ class NewInvoicePanel(ctk.CTkFrame):
             ],
         )
         self.table.pack(fill="both", expand=True, padx=12, pady=(4, 4))
-        self.total_label = ctk.CTkLabel(right, text="", font=theme.font(15, "bold"), anchor="w")
-        self.total_label.pack(fill="x", padx=14)
-        actions = ctk.CTkFrame(right, fg_color="transparent")
-        actions.pack(fill="x", padx=12, pady=(6, 12))
-        primary_button(actions, "Save & create DOCX", self.save, width=170).pack(side="left")
-        if word_available():
-            primary_button(actions, "Save & make PDF", lambda: self.save(pdf=True), width=150).pack(side="left", padx=8)
-        ctk.CTkLabel(
-            actions,
-            text=f"Bills of {money(MAX_RENDER_TOTAL)} or more are flagged (cash-sale limit).",
-            font=theme.font(11),
-            text_color=theme.color("muted"),
-        ).pack(side="right")
 
     def tables(self):
         return [self.table]
@@ -330,6 +343,24 @@ class BrowsePanel(ctk.CTkFrame):
             self.m_to.pack(side="left", padx=4)
             secondary_button(merge, "PDF + merge range", self.merge_range, width=140).pack(side="left")
 
+        self.lines = DataTable(
+            self,
+            [
+                Column("name", "Item", 220, stretch=True),
+                Column("qty", "Qty", 70, "e", "qty"),
+                Column("unit", "Unit", 60),
+                Column("batch", "Batch", 90),
+                Column("exp", "Expiry", 90),
+                Column("rate", "Rate", 90, "e", "money"),
+                Column("amount", "Amount", 100, "e", "money"),
+                Column("gst", "GST%", 60, "e", "qty"),
+                Column("cgst", "CGST", 90, "e", "money"),
+                Column("sgst", "SGST", 90, "e", "money"),
+            ],
+            height=6,
+        )
+        self.lines.pack(side="bottom", fill="x")
+
         self.table = DataTable(
             self,
             [
@@ -347,23 +378,6 @@ class BrowsePanel(ctk.CTkFrame):
             row_tags=lambda r: ["neg"] if r[6] >= MAX_RENDER_TOTAL else [],
         )
         self.table.pack(fill="both", expand=True, pady=(0, 4))
-        self.lines = DataTable(
-            self,
-            [
-                Column("name", "Item", 220, stretch=True),
-                Column("qty", "Qty", 70, "e", "qty"),
-                Column("unit", "Unit", 60),
-                Column("batch", "Batch", 90),
-                Column("exp", "Expiry", 90),
-                Column("rate", "Rate", 90, "e", "money"),
-                Column("amount", "Amount", 100, "e", "money"),
-                Column("gst", "GST%", 60, "e", "qty"),
-                Column("cgst", "CGST", 90, "e", "money"),
-                Column("sgst", "SGST", 90, "e", "money"),
-            ],
-            height=6,
-        )
-        self.lines.pack(fill="x")
 
     def tables(self):
         return [self.table, self.lines]

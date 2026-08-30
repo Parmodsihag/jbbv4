@@ -521,8 +521,23 @@ class BillsService:
             "total_amount_in_words": to_currency(bill.grand_total),
         }
 
+    @staticmethod
+    def missing_dependencies() -> list[str]:
+        missing = []
+        for module, package in (("docxtpl", "docxtpl"), ("pypdf", "pypdf")):
+            try:
+                __import__(module)
+            except ImportError:
+                missing.append(package)
+        return missing
+
     def render_docx(self, bill: Bill, force: bool = False) -> Path:
-        from docxtpl import DocxTemplate
+        try:
+            from docxtpl import DocxTemplate
+        except ImportError as exc:
+            raise ValidationError("Cannot create the DOCX: run  pip install docxtpl  and restart.") from exc
+        if not TEMPLATE.exists():
+            raise ValidationError(f"Invoice template missing: {TEMPLATE}")
 
         self.bills_dir.mkdir(parents=True, exist_ok=True)
         out = self.bills_dir / f"{bill.bill_number}.docx"

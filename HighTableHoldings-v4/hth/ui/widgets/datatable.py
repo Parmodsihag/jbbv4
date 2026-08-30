@@ -72,7 +72,7 @@ class DataTable(ctk.CTkFrame):
             show="headings",
             style="HTH.Treeview",
             selectmode="browse",
-            height=height or 20,
+            height=height or 6,  # requested rows only - expand=True grows it to fit
         )
         for idx, col in enumerate(self.columns):
             self.tree.heading(col.key, text=col.title, anchor=col.anchor, command=lambda i=idx: self.sort_by(i))

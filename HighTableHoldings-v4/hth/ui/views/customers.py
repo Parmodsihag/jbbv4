@@ -145,13 +145,13 @@ class CustomerListPanel(ctk.CTkFrame):
             on_double_click=lambda r: self.view.show_ledger(r[0]),
             row_tags=lambda r: ["neg"] if r[3] > 0 else (["pos"] if r[3] < 0 else ["muted"]),
         )
-        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 4))
         ctk.CTkLabel(
             self,
             text="Double-click an account to open its ledger.  Balance in red = customer owes.",
             font=theme.font(11),
             text_color=theme.color("muted"),
-        ).pack(padx=12, pady=(0, 10), anchor="w")
+        ).pack(side="bottom", padx=12, pady=(0, 10), anchor="w")
+        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 4))
 
     def reload(self) -> None:
         self.table.set_footer("Loading balances…")

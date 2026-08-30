@@ -167,13 +167,13 @@ class ItemListPanel(ctk.CTkFrame):
             on_double_click=lambda r: self.view.show_history(r[0]),
             row_tags=lambda r: ["warn"] if r[4] <= 0 else [],
         )
-        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 4))
         ctk.CTkLabel(
             self,
             text="Double-click an item to see its movements.",
             font=theme.font(11),
             text_color=theme.color("muted"),
-        ).pack(padx=12, pady=(0, 10), anchor="w")
+        ).pack(side="bottom", padx=12, pady=(0, 10), anchor="w")
+        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 4))
 
     def reload(self) -> None:
         self._all = [

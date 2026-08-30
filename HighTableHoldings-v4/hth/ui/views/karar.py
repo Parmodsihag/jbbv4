@@ -98,13 +98,13 @@ class KararView(BaseView):
             row_tags=lambda r: ["neg"] if r[4] < 0 else (["warn"] if r[4] == 0 else []),
             on_double_click=lambda r: self.ctx.navigate("customers", customer_id=r[7]),
         )
-        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 4))
         ctk.CTkLabel(
             right,
             text="Days: negative = overdue.  Double-click to open the ledger.",
             font=theme.font(11),
             text_color=theme.color("muted"),
-        ).pack(padx=12, pady=(0, 10), anchor="w")
+        ).pack(side="bottom", padx=12, pady=(0, 10), anchor="w")
+        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 4))
 
     def _open_accounts(self):
         ids = self.ctx.krar.unsettled_customer_ids()
