@@ -72,9 +72,16 @@ class BillsView(BaseView):
         self.browse = BrowsePanel(self.tabs.tab("Browse"), self)
         self.browse.pack(fill="both", expand=True)
 
-    def on_show(self, **kwargs) -> None:
+    def on_show(self, bill_number: int | None = None, **kwargs) -> None:
         self.new.refresh()
+        if bill_number is not None:
+            self.browse.search.delete(0, "end")
+            self.browse.search.insert(0, str(bill_number))
+            self.browse.month.set("All")
+            self.tabs.set("Browse")
         self.browse.reload()
+        if bill_number is not None:
+            self.browse.table.select_first()
         if hasattr(self, "batch"):
             self.batch.reload()
 

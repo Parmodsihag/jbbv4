@@ -23,6 +23,8 @@ class Customer:
     id: int
     name: str
     other_details: str
+    category: str = "C"
+    category_locked: bool = False
 
     @property
     def display(self) -> str:
@@ -74,6 +76,8 @@ class Item:
     gst_rate: float
     item_type: str
     pakka_kacha: str
+    category: str = "C"
+    category_locked: bool = False
 
     @property
     def display(self) -> str:
@@ -99,6 +103,8 @@ class CustomerSummary:
     balance: float
     days: int
     score: float = 0.0
+    category: str = "C"
+    scored: bool = True  # False when kept out of the score population (defaulters)
 
 
 @dataclass(frozen=True)

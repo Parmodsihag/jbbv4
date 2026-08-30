@@ -191,7 +191,7 @@ class CropService:
         with self.db.connect():
             tx_id = self.accounts.add_transaction(farmer_id, date, desc, amount, "M", tag, username, audit=False)
             stock_tx = self.inventory.add_item_transaction(
-                item.id, date, net, 0, f"CROP {farmer.name}", "crop", username, audit=False
+                item.id, date, net, 0, f"CROP {farmer.name}", "crop", username, audit=False, value=amount
             )
             lot_id = self.db.execute(
                 "INSERT INTO crop_lots (date, farmer_id, item_id, gross_qty, deduction_qty, qty, remaining_qty,"
@@ -369,7 +369,7 @@ class CropService:
             if buyer:
                 tx_id = self.accounts.add_transaction(buyer.id, date, desc, amount, "P", tag, username, audit=False)
             stock_tx = self.inventory.add_item_transaction(
-                item.id, date, 0, q, f"CROP {name}", "crop", username, audit=False
+                item.id, date, 0, q, f"CROP {name}", "crop", username, audit=False, value=amount
             )
             sale_id = self.db.execute(
                 "INSERT INTO crop_sales (date, buyer_id, buyer_name, item_id, qty, rate, amount, cost, margin,"

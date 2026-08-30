@@ -235,6 +235,76 @@ MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS ix_crop_rates_item ON crop_rates(item_id, date);
         """,
     ),
+    (
+        4,
+        """
+        -- categories (A-E) on customers and items; E = defaulter / discontinued, manual only
+        ALTER TABLE customers ADD COLUMN category TEXT NOT NULL DEFAULT 'C';
+        ALTER TABLE customers ADD COLUMN category_locked INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE items ADD COLUMN category TEXT NOT NULL DEFAULT 'C';
+        ALTER TABLE items ADD COLUMN category_locked INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX IF NOT EXISTS ix_customers_category ON customers(category);
+        CREATE INDEX IF NOT EXISTS ix_items_category ON items(category);
+        """,
+    ),
+    (
+        5,
+        """
+        -- finance module (hth/modules/finance)
+        CREATE TABLE IF NOT EXISTS money_accounts (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            kind            TEXT NOT NULL DEFAULT 'cash' CHECK (kind IN ('cash', 'bank', 'upi', 'other')),
+            opening_balance REAL NOT NULL DEFAULT 0,
+            opening_date    TEXT NOT NULL DEFAULT (date('now','localtime')),
+            is_active       INTEGER NOT NULL DEFAULT 1,
+            notes           TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS expense_heads (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            name      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            kind      TEXT NOT NULL DEFAULT 'expense' CHECK (kind IN ('expense', 'income')),
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+
+        -- kind: expense | income | transfer | owner_in | owner_out | receipt | payment
+        -- account_id is the money account the entry moves; counter_account_id for transfers.
+        CREATE TABLE IF NOT EXISTS finance_entries (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            date               TEXT NOT NULL,
+            kind               TEXT NOT NULL CHECK (kind IN ('expense','income','transfer','owner_in',
+                                                          'owner_out','receipt','payment')),
+            account_id         INTEGER NOT NULL REFERENCES money_accounts(id) ON DELETE RESTRICT,
+            counter_account_id INTEGER REFERENCES money_accounts(id) ON DELETE RESTRICT,
+            head_id            INTEGER REFERENCES expense_heads(id) ON DELETE RESTRICT,
+            customer_id        INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+            amount             REAL NOT NULL,
+            description        TEXT NOT NULL DEFAULT '',
+            tx_id              INTEGER,
+            created_by         TEXT,
+            created_at         TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_fin_account_date ON finance_entries(account_id, date, id);
+        CREATE INDEX IF NOT EXISTS ix_fin_date ON finance_entries(date);
+        CREATE INDEX IF NOT EXISTS ix_fin_head ON finance_entries(head_id);
+
+        CREATE TABLE IF NOT EXISTS finance_recurring (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            head_id      INTEGER NOT NULL REFERENCES expense_heads(id) ON DELETE RESTRICT,
+            account_id   INTEGER NOT NULL REFERENCES money_accounts(id) ON DELETE RESTRICT,
+            amount       REAL NOT NULL,
+            day_of_month INTEGER NOT NULL DEFAULT 1,
+            description  TEXT NOT NULL DEFAULT '',
+            is_active    INTEGER NOT NULL DEFAULT 1,
+            start_month  TEXT NOT NULL,             -- YYYY-MM of the first month to post
+            last_posted  TEXT                       -- YYYY-MM of the last month posted
+        );
+
+        -- value of a stock movement (sale price x qty for sales, cost x qty for receipts)
+        ALTER TABLE item_transactions ADD COLUMN value REAL NOT NULL DEFAULT 0;
+        """,
+    ),
 ]
 
 

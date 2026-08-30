@@ -14,6 +14,7 @@ from hth.db.connection import Database
 from hth.domain.models import User
 from hth.modules import discover
 from hth.services.permissions import ROLES, Permission
+from hth.services.search import SearchService
 from hth.ui import theme
 from hth.ui.context import AppContext
 from hth.ui.views.base import BaseView
@@ -25,7 +26,9 @@ from hth.ui.views.login import LoginView
 from hth.ui.views.reports import ReportsView
 from hth.ui.views.sales import SalesView
 from hth.ui.views.settings import SettingsView
+from hth.ui.views.setup import SetupView, setup_completed
 from hth.ui.views.users import UsersView
+from hth.ui.widgets.palette import SearchPalette
 from hth.ui.widgets.toast import ToastHost
 
 log = logging.getLogger(__name__)
@@ -60,6 +63,8 @@ class App(ctk.CTk):
         self._active: str | None = None
         self._shell: ctk.CTkFrame | None = None
         self._login: LoginView | None = None
+        self._setup: SetupView | None = None
+        self._palette: SearchPalette | None = None
         self._registry = self._build_registry()
         self._maximize()
         self.show_login()
@@ -99,9 +104,49 @@ class App(ctk.CTk):
         self._nav_buttons.clear()
         self._active = None
         self.ctx.user = None
+        if not setup_completed(self.ctx.db):
+            self.show_setup()
+            return
         self._login = LoginView(self, self.ctx)
         self._login.pack(fill="both", expand=True)
         self._login.on_show()
+
+    def show_setup(self) -> None:
+        if self._login is not None:
+            self._login.destroy()
+            self._login = None
+        self._setup = SetupView(self, self.ctx)
+        self._setup.pack(fill="both", expand=True)
+
+    def setup_done(self) -> None:
+        if self._setup is not None:
+            self._setup.destroy()
+            self._setup = None
+        self.show_login()
+        self.toast("Setup complete - sign in with your new password", "success")
+
+    # Global search -----------------------------------------------------------------------
+    def open_search(self) -> None:
+        if self._shell is None or self.ctx.user is None:
+            return
+        if self._palette is not None and self._palette.winfo_exists():
+            self._palette.close()
+        kinds = set()
+        if self.ctx.can(Permission.ADD_CUSTOMER):
+            kinds.add("customer")
+        if self.ctx.can(Permission.ADD_ITEM):
+            kinds.add("item")
+        if self.ctx.can(Permission.BILLING) and any(e[0] == "bills" for e in self._registry):
+            kinds.add("bill")
+        self._palette = SearchPalette(self, SearchService(self.ctx.db), kinds, self._search_pick)
+
+    def _search_pick(self, hit) -> None:
+        if hit.kind == "customer":
+            self.navigate("customers", customer_id=hit.id)
+        elif hit.kind == "item":
+            self.navigate("items", item_id=hit.id)
+        elif hit.kind == "bill":
+            self.navigate("bills", bill_number=hit.id)
 
     def on_login(self, user: User) -> None:
         self.ctx.user = user
@@ -208,6 +253,19 @@ class App(ctk.CTk):
             command=self.toggle_theme,
         )
         self.theme_button.pack(side="right")
+        ctk.CTkButton(
+            header,
+            text="🔍  Search   Ctrl+K",
+            width=150,
+            height=32,
+            font=theme.font(12),
+            fg_color=theme.color("surface2"),
+            hover_color=theme.color("surface3"),
+            text_color=theme.color("text"),
+            command=self.open_search,
+        ).pack(side="right", padx=8)
+        self.bind("<Control-k>", lambda e: self.open_search())
+        self.bind("<Control-K>", lambda e: self.open_search())
         ctk.CTkLabel(
             header,
             text=dt.date.today().strftime("%A, %d %B %Y"),

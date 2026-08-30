@@ -49,11 +49,17 @@ class AuditCode(str, Enum):
     USER = "09"
     CROP = "10"
     RATE = "11"
+    FINANCE = "12"
 
     @property
     def label(self) -> str:
         return self.name.replace("_", " ").title()
 
+
+# Customer / item categories.  A best ... D worst by score; E = defaulter / discontinued,
+# assigned by hand only and normally kept out of reports and out of the score population.
+CATEGORIES = ["A", "B", "C", "D", "E"]
+DEFAULTER_CATEGORY = "E"
 
 ITEM_TYPES = ["F", "P", "S", "C", "O"]  # fertiliser, pesticide, seed, crop (v4), other
 PAKKA_KACHA = ["P", "K"]

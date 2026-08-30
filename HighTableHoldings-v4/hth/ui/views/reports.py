@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import customtkinter as ctk
 
@@ -46,9 +46,19 @@ class ReportSpec:
     open_row: Callable[[Sequence], tuple[str, dict] | None] | None = None
 
 
+SCOPE = Param("scope", "Scope", "choice", "Per settings", ["Per settings", "All categories"])
+
+
+def _scope(p) -> str:
+    return "all" if p.get("scope") == "All categories" else "settings"
+
+
 # --- report bodies ------------------------------------------------------------------------
 def _account_summary(ctx, p):
-    rows = [(s.id, s.name, s.other_details, s.balance, s.days, f"{s.score:.2f}") for s in ctx.accounts.summaries()]
+    rows = [
+        (s.id, s.name, s.other_details, s.balance, s.days, f"{s.score:.2f}" if s.scored else "-", s.category)
+        for s in ctx.categories.customer_summaries(scope=_scope(p))
+    ]
     recv = sum(r[3] for r in rows if r[3] > 0)
     pay = -sum(r[3] for r in rows if r[3] < 0)
     return rows, f"{len(rows)} accounts · receivable {money(recv)} · payable {money(pay)}"
@@ -81,13 +91,13 @@ def _items(ctx, p):
             s.item.item_type,
             s.item.pakka_kacha,
         )
-        for s in ctx.inventory.summaries()
+        for s in ctx.inventory.summaries(categories=ctx.categories.item_scope(_scope(p)))
     ]
     return rows, f"{len(rows)} items · stock value {money(sum(r[6] for r in rows))}"
 
 
 def _movement(ctx, p):
-    rows = ctx.reports.item_movement(p["from"], p["to"])
+    rows = ctx.reports.item_movement(p["from"], p["to"], categories=ctx.categories.item_scope(_scope(p)))
     return (
         rows,
         f"{len(rows)} items · sold {sum(r[3] for r in rows):g} · received {sum(r[2] for r in rows):g}",
@@ -95,17 +105,20 @@ def _movement(ctx, p):
 
 
 def _aging(ctx, p):
-    rows = ctx.reports.aging()
+    rows = ctx.reports.aging(ctx.categories.customer_summaries(scope=_scope(p)))
     return rows, f"total receivable {money(sum(r[2] for r in rows))}"
 
 
 def _top(ctx, p):
-    rows = [(s.id, s.name, s.other_details, s.balance, s.days) for s in ctx.reports.top_debtors(int(p["n"] or 10))]
+    rows = [
+        (s.id, s.name, s.other_details, s.balance, s.days)
+        for s in ctx.reports.top_debtors(int(p["n"] or 10), ctx.categories.customer_summaries(scope=_scope(p)))
+    ]
     return rows, f"{len(rows)} debtors · {money(sum(r[3] for r in rows))}"
 
 
 def _interest(ctx, p):
-    rows = ctx.reports.interest_summary()
+    rows = ctx.reports.interest_summary(categories=ctx.categories.customer_scope(_scope(p)))
     return (
         rows,
         f"principal {money(sum(r[2] for r in rows))} · interest {money(sum(r[3] for r in rows))}"
@@ -114,7 +127,10 @@ def _interest(ctx, p):
 
 
 def _monthly(ctx, p):
-    rows = [(m.month, m.debit, m.credit, m.net) for m in ctx.reports.monthly_flow(int(p["months"] or 12))]
+    rows = [
+        (m.month, m.debit, m.credit, m.net)
+        for m in ctx.reports.monthly_flow(int(p["months"] or 12), categories=ctx.categories.customer_scope(_scope(p)))
+    ]
     return rows, f"debit {money(sum(r[1] for r in rows))} · credit {money(sum(r[2] for r in rows))}"
 
 
@@ -126,7 +142,7 @@ def _daybook(ctx, p):
 
 
 def _activity(ctx, p):
-    rows = ctx.reports.customer_activity(p["from"], p["to"])
+    rows = ctx.reports.customer_activity(p["from"], p["to"], categories=ctx.categories.customer_scope(_scope(p)))
     return (
         rows,
         f"{len(rows)} customers · debited {money(sum(r[3] for r in rows))} · credited {money(sum(r[4] for r in rows))}",
@@ -137,6 +153,7 @@ def _low_stock(ctx, p):
     rows = [
         (s.item.id, s.item.name, s.item.batch, s.in_stock, s.item.unit)
         for s in ctx.inventory.low_stock(float(p["threshold"] or 5))
+        if _in_scope(ctx, s, p)
     ]
     return rows, f"{len(rows)} items at or below {p['threshold'] or 5}"
 
@@ -145,6 +162,7 @@ def _expiring(ctx, p):
     rows = [
         (s.item.id, s.item.name, s.item.batch, s.item.expiry_date, d, s.in_stock)
         for s, d in ctx.inventory.expiring(int(p["days"] or 60))
+        if _in_scope(ctx, s, p)
     ]
     return (
         rows,
@@ -153,8 +171,13 @@ def _expiring(ctx, p):
 
 
 def _dead(ctx, p):
-    rows = ctx.reports.dead_stock(int(p["days"] or 90))
+    rows = ctx.reports.dead_stock(int(p["days"] or 90), categories=ctx.categories.item_scope(_scope(p)))
     return rows, f"{len(rows)} items with stock and no sale in {p['days'] or 90} days"
+
+
+def _in_scope(ctx, summary, p) -> bool:
+    scope = ctx.categories.item_scope(_scope(p))
+    return scope is None or summary.item.category in scope
 
 
 def _krar(ctx, p):
@@ -212,6 +235,7 @@ REPORTS: list[ReportSpec] = [
             Column("balance", "Balance", 120, "e", "money"),
             Column("days", "Days", 70, "e", "int"),
             Column("score", "Score", 70, "e"),
+            Column("cat", "Cat", 45, "center"),
         ],
         _account_summary,
         row_tags=lambda r: ["neg"] if r[3] > 0 else (["pos"] if r[3] < 0 else ["muted"]),
@@ -459,6 +483,22 @@ REPORTS: list[ReportSpec] = [
         open_row=_open_finding,
     ),
 ]
+
+
+SCOPED_REPORTS = {
+    "summary",
+    "aging",
+    "top",
+    "interest",
+    "activity",
+    "monthly",
+    "items",
+    "movement",
+    "low",
+    "expiring",
+    "dead",
+}
+REPORTS = [replace(spec, params=(*spec.params, SCOPE)) if spec.key in SCOPED_REPORTS else spec for spec in REPORTS]
 
 
 class ReportsView(BaseView):

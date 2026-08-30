@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "high-table-holdings"
-version = "4.2.0"
+version = "4.7.0"
 description = "Accounting and inventory management for Jaat Beaj Bhander"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,3 +40,6 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"hth/services/statements.py" = ["E501"]  # HTML template literal

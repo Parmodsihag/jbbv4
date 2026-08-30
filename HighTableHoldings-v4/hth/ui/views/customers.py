@@ -10,8 +10,9 @@ from hth.domain.constants import TAG_CHOICES, Tag
 from hth.services.accounts import ValidationError
 from hth.services.export import export_rows, safe_filename
 from hth.services.permissions import Permission
+from hth.services.statements import financial_year_start
 from hth.ui import theme
-from hth.ui.format import money, open_path
+from hth.ui.format import money, open_path, today_str
 from hth.ui.views.base import BaseView
 from hth.ui.widgets.datatable import Column, DataTable
 from hth.ui.widgets.dialogs import Field, confirm, run_form
@@ -132,6 +133,16 @@ class CustomerListPanel(ctk.CTkFrame):
         )
         self.search.pack(side="right")
         self.search.bind("<KeyRelease>", lambda e: self._filter())
+        self.cat_filter = ctk.CTkOptionMenu(
+            bar,
+            values=["All", "A", "B", "C", "D", "E"],
+            width=70,
+            height=34,
+            font=theme.font(13),
+            command=lambda _v: self._filter(),
+        )
+        self.cat_filter.set("All")
+        self.cat_filter.pack(side="right", padx=(0, 6))
         self.table = DataTable(
             self,
             [
@@ -141,9 +152,12 @@ class CustomerListPanel(ctk.CTkFrame):
                 Column("balance", "Balance", 120, "e", "money"),
                 Column("days", "Days", 70, "e", "int"),
                 Column("score", "Score", 70, "e", "text"),
+                Column("cat", "Cat", 45, "center"),
             ],
             on_double_click=lambda r: self.view.show_ledger(r[0]),
-            row_tags=lambda r: ["neg"] if r[3] > 0 else (["pos"] if r[3] < 0 else ["muted"]),
+            row_tags=lambda r: (
+                (["muted"] if r[6] == "E" else []) + (["neg"] if r[3] > 0 else (["pos"] if r[3] < 0 else ["muted"]))
+            ),
         )
         ctk.CTkLabel(
             self,
@@ -155,15 +169,23 @@ class CustomerListPanel(ctk.CTkFrame):
 
     def reload(self) -> None:
         self.table.set_footer("Loading balances…")
-        self.view.run_async(self.ctx.accounts.summaries, self._loaded)
+        self.view.run_async(lambda: self.ctx.categories.customer_summaries(scope="all"), self._loaded)
 
     def _loaded(self, summaries) -> None:
-        self._all = [(s.id, s.name, s.other_details, s.balance, s.days, f"{s.score:.2f}") for s in summaries]
+        self._all = [
+            (s.id, s.name, s.other_details, s.balance, s.days, f"{s.score:.2f}" if s.scored else "-", s.category)
+            for s in summaries
+        ]
         self._filter()
 
     def _filter(self) -> None:
         term = self.search.get().strip().lower()
-        rows = [r for r in self._all if not term or term in f"{r[0]} {r[1]} {r[2]}".lower()]
+        cat = self.cat_filter.get()
+        rows = [
+            r
+            for r in self._all
+            if (not term or term in f"{r[0]} {r[1]} {r[2]}".lower()) and (cat == "All" or r[6] == cat)
+        ]
         receivable = sum(r[3] for r in rows if r[3] > 0)
         payable = -sum(r[3] for r in rows if r[3] < 0)
         self.table.set_rows(
@@ -189,11 +211,13 @@ class LedgerPanel(ctk.CTkFrame):
         tools = ctk.CTkFrame(self, fg_color="transparent")
         tools.pack(fill="x", padx=12, pady=(0, 4))
         secondary_button(tools, "Export Excel", self.export, width=110).pack(side="left")
+        secondary_button(tools, "Statement", self.statement, width=100).pack(side="left", padx=6)
         secondary_button(tools, "↻", lambda: self.load(self.customer.id), width=40).pack(side="left", padx=6)
         if self.ctx.can(Permission.EDIT_RECORDS):
             secondary_button(tools, "Add entry", self.add_entry, width=100).pack(side="left", padx=(12, 6))
             secondary_button(tools, "Edit entry", self.edit_entry, width=100).pack(side="left", padx=6)
             secondary_button(tools, "Edit customer", self.edit_customer, width=120).pack(side="left", padx=6)
+            secondary_button(tools, "Category", self.set_category, width=90).pack(side="left", padx=6)
         if self.ctx.can(Permission.DELETE_RECORDS):
             danger_button(tools, "Delete entry", self.delete_entry, width=100).pack(side="right", padx=(6, 0))
             danger_button(tools, "Delete customer", self.delete_customer, width=130).pack(side="right")
@@ -222,7 +246,11 @@ class LedgerPanel(ctk.CTkFrame):
             self.ctx.toast("Customer not found", "error")
             self.view.show_list()
             return
-        self.name_label.configure(text=f"#{self.customer.id}  {self.customer.name}   {self.customer.other_details}")
+        lock = " 🔒" if self.customer.category_locked else ""
+        self.name_label.configure(
+            text=f"#{self.customer.id}  {self.customer.name}   {self.customer.other_details}"
+            f"   ·   category {self.customer.category}{lock}"
+        )
         rows = self.ctx.accounts.ledger(customer_id)
         table_rows = [
             (r.id, r.date, r.particulars, r.interest, r.debit, r.credit, r.balance, r.tag, r.type) for r in rows
@@ -258,6 +286,23 @@ class LedgerPanel(ctk.CTkFrame):
         self.ctx.toast(f"Saved {path.name}", "success")
         if confirm(self, "Export", f"Saved to\n{path}\n\nOpen it now?"):
             open_path(path)
+
+    def statement(self) -> None:
+        if not self.customer:
+            return
+        fields = [
+            Field("from", "From", default=financial_year_start()),
+            Field("to", "To", default=today_str()),
+        ]
+        out = {}
+
+        def submit(v):
+            st = self.ctx.statements.build(self.customer.id, v["from"], v["to"])
+            out["path"] = self.ctx.statements.write(st, self.ctx.settings.export_dir)
+
+        if run_form(self, f"Statement for {self.customer.name}", fields, submit, "Create") and out:
+            self.ctx.toast(f"Statement saved: {out['path'].name}", "success")
+            open_path(out["path"])
 
     # Admin edits ---------------------------------------------------------------------
     def _selected_tx(self):
@@ -344,6 +389,29 @@ class LedgerPanel(ctk.CTkFrame):
             lambda v: self.ctx.accounts.update_customer(c.id, v["name"], v["details"], self.ctx.username),
         )
         self.load(c.id)
+
+    def set_category(self) -> None:
+        c = self.customer
+        fields = [
+            Field(
+                "category",
+                "Category (E = defaulter, kept out of reports and scoring)",
+                "option",
+                c.category,
+                ["A", "B", "C", "D", "E"],
+            ),
+            Field("mode", "After saving", "option", "Keep (locked)", ["Keep (locked)", "Let re-score change it"]),
+        ]
+
+        def submit(v):
+            if v["mode"].startswith("Keep"):
+                self.ctx.categories.set_customer_category(c.id, v["category"], self.ctx.username)
+            else:
+                self.ctx.accounts.set_category(c.id, v["category"], self.ctx.username, locked=False)
+
+        if run_form(self, f"Category of {c.name}", fields, submit):
+            self.ctx.toast("Category updated", "success")
+            self.load(c.id)
 
     def delete_customer(self) -> None:
         c = self.customer

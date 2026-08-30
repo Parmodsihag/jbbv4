@@ -29,7 +29,9 @@ class Database:
         self._memory_conn: sqlite3.Connection | None = self._open() if self.is_memory else None
 
     def _open(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(":memory:" if self.is_memory else str(self.path), check_same_thread=False)
+        # timeout: wait for a busy write lock instead of failing while a background
+        # thread (dashboard, reports) holds a short transaction.
+        conn = sqlite3.connect(":memory:" if self.is_memory else str(self.path), check_same_thread=False, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         if not self.is_memory:

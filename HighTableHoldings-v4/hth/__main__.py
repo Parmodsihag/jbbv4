@@ -17,6 +17,15 @@ def main() -> int:
     db = Database(settings.db_path)
     initialize(db)
     AuthService(db).ensure_default_users()
+    from hth.services.backup import BackupService
+
+    BackupService(db, settings).daily()
+    try:
+        from hth.modules.finance.service import FinanceService
+
+        FinanceService(db).ensure_defaults()
+    except ImportError:
+        pass
 
     from hth.ui.app import run_app
 

@@ -18,6 +18,22 @@ from hth.ui.widgets.kpi import KpiTile
 CHART_H = 250  # chart body height in px
 
 
+def _money_balances(db) -> tuple[float, str]:
+    """(total, 'CASH 1,000 · SBI 5,000') from the finance module, or (0, '') without it."""
+    from hth.services.sales import money_flow_handler
+
+    flow = money_flow_handler(db)
+    if flow is None:
+        return 0.0, "finance module off"
+    try:
+        balances = flow.balances()
+    except Exception:  # noqa: BLE001
+        return 0.0, ""
+    total = round(sum(b for _, b in balances), 2)
+    detail = " · ".join(f"{a.name} {money(b)}" for a, b in balances[:3])
+    return total, detail
+
+
 class DashboardView(BaseView):
     key = "dashboard"
     title = "Dashboard"
@@ -40,7 +56,7 @@ class DashboardView(BaseView):
 
         tiles = ctk.CTkFrame(body, fg_color="transparent")
         tiles.grid(row=1, column=0, columnspan=3, sticky="ew", padx=0, pady=(0, 10))
-        for i in range(6):
+        for i in range(7):
             tiles.grid_columnconfigure(i, weight=1, uniform="k")
         self.k_recv = KpiTile(tiles, "Receivable", accent="accent")
         self.k_pay = KpiTile(tiles, "Payable", accent="warning")
@@ -48,7 +64,10 @@ class DashboardView(BaseView):
         self.k_stock = KpiTile(tiles, "Stock value", accent="success")
         self.k_krar = KpiTile(tiles, "Krar due", accent="danger")
         self.k_today = KpiTile(tiles, "Today", accent="chart2")
-        for i, t in enumerate((self.k_recv, self.k_pay, self.k_cust, self.k_stock, self.k_krar, self.k_today)):
+        self.k_money = KpiTile(tiles, "Cash & bank", accent="chart3")
+        for i, t in enumerate(
+            (self.k_recv, self.k_pay, self.k_cust, self.k_stock, self.k_krar, self.k_today, self.k_money)
+        ):
             t.grid(row=0, column=i, sticky="ew", padx=4)
 
         self.c_activity = ChartCard(body, "Activity - last 14 days", height=CHART_H)
@@ -94,7 +113,8 @@ class DashboardView(BaseView):
         rep = self.ctx.reports
 
         def work():
-            summaries = rep.accounts.summaries()
+            summaries = rep.categories.customer_summaries()
+            cats = ",".join(sorted(rep.categories.customer_report_categories())) or "none"
             balances = {s.id: s.balance for s in summaries}
             krar_rows = []
             for bucket, label in (("past", "Overdue"), ("today", "Today"), ("future", "Upcoming")):
@@ -115,6 +135,8 @@ class DashboardView(BaseView):
                 "aging": rep.aging(summaries),
                 "top": rep.top_debtors(10, summaries),
                 "krar": krar_rows,
+                "cats": cats,
+                "money": _money_balances(rep.db),
             }
 
         self.run_async(work, self._render)
@@ -124,10 +146,12 @@ class DashboardView(BaseView):
         k = data["kpis"]
         self.k_recv.set(money(k.receivable), f"{k.debtors} debtors")
         self.k_pay.set(money(k.payable), "owed to customers")
-        self.k_cust.set(str(k.customers), f"{k.items} items")
+        self.k_cust.set(str(k.customers), f"{k.items} items · categories {data['cats']}")
         self.k_stock.set(money(k.stock_value), "at stock value")
         self.k_krar.set(str(k.krar_today), f"{k.krar_overdue} overdue")
         self.k_today.set(f"{k.sales_today} / {k.receipts_today}", "sales / receipts")
+        total, detail = data["money"]
+        self.k_money.set(money(total), detail)
         self.refreshed.configure(text=f"Updated {dt.datetime.now():%H:%M:%S}")
 
         activity = data["activity"]

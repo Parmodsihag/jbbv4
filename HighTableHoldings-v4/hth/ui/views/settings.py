@@ -12,6 +12,7 @@ from hth import __app_name__, __version__
 from hth.config import LEGACY_DATA_DIR_WINDOWS
 from hth.domain.constants import ANNUAL_INTEREST_RATE_PERCENT
 from hth.migration.from_v3 import MigrationError, migrate
+from hth.services.accounts import ValidationError
 from hth.services.permissions import Permission
 from hth.ui import theme
 from hth.ui.format import open_path
@@ -78,8 +79,32 @@ class SettingsView(BaseView):
         )
         if self.ctx.can(Permission.BACKUP):
             primary_button(row, "Backup now", self.backup, width=130).pack(side="left", padx=(0, 8))
+        b = self.ctx.backup
+        last = b.last_backup()
+        self.auto_backup = ctk.BooleanVar(value=b.enabled())
+        auto_row = ctk.CTkFrame(body, fg_color="transparent")
+        auto_row.pack(fill="x", pady=(8, 0))
+        ctk.CTkCheckBox(
+            auto_row,
+            text="Automatic backup on the first start each day",
+            variable=self.auto_backup,
+            font=theme.font(13),
+            command=self.save_backup_prefs,
+        ).pack(side="left")
+        ctk.CTkLabel(auto_row, text="  keep last", font=theme.font(13)).pack(side="left")
+        self.keep_entry = ctk.CTkEntry(auto_row, width=50, height=30, font=theme.font(13))
+        self.keep_entry.insert(0, str(b.keep()))
+        self.keep_entry.pack(side="left", padx=4)
+        self.keep_entry.bind("<FocusOut>", lambda e: self.save_backup_prefs())
+        ctk.CTkLabel(
+            auto_row,
+            text=f"   last backup: {last.name if last else 'none yet'}",
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+        ).pack(side="left")
         if self.ctx.can(Permission.MANAGE_SETTINGS):
             secondary_button(row, "Import v3 data…", self.import_v3, width=150).pack(side="left")
+            secondary_button(row, "Run setup wizard", self.rerun_setup, width=140).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(
             body,
             text="Tip: back up before month-end and keep copies of the backups folder off this computer.",
@@ -87,6 +112,10 @@ class SettingsView(BaseView):
             text_color=theme.color("muted"),
             anchor="w",
         ).pack(fill="x", pady=(8, 0))
+
+        self._build_company(scroll)
+        self._build_reminders(scroll)
+        self._build_categories(scroll)
 
         about = Card(scroll, "About")
         about.pack(fill="x", padx=4, pady=4)
@@ -104,6 +133,202 @@ class SettingsView(BaseView):
             justify="left",
             anchor="w",
         ).pack(fill="x", padx=18, pady=(4, 16))
+
+    # Reminders -------------------------------------------------------------------------
+    def _build_reminders(self, scroll) -> None:
+        card = Card(scroll, "Payment reminders (Karar → Copy reminder / WhatsApp)")
+        card.pack(fill="x", padx=4, pady=4)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(4, 16))
+        self.reminder_box = ctk.CTkTextbox(body, height=80, font=theme.font(13))
+        self.reminder_box.insert("1.0", self.ctx.reminders.template())
+        self.reminder_box.pack(fill="x")
+        ctk.CTkLabel(
+            body,
+            text="Placeholders: {name} {amount} {date} {days} {shop} {phone} {village}.  "
+            "WhatsApp opens when the account details contain a 10-digit mobile number.",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
+            anchor="w",
+            wraplength=900,
+            justify="left",
+        ).pack(fill="x", pady=(4, 0))
+        if self.ctx.can(Permission.MANAGE_SETTINGS):
+            secondary_button(body, "Save template", self.save_reminder, width=130).pack(anchor="w", pady=(8, 0))
+
+    def save_reminder(self) -> None:
+        try:
+            self.ctx.reminders.set_template(self.reminder_box.get("1.0", "end"))
+        except ValueError as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        self.ctx.toast("Reminder template saved", "success")
+
+    # Company profile ------------------------------------------------------------------
+    def _build_company(self, scroll) -> None:
+        card = Card(scroll, "Shop details (statements and invoices)")
+        card.pack(fill="x", padx=4, pady=4)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(4, 16))
+        p = self.ctx.company.profile()
+        self.company_text = ctk.CTkLabel(
+            body,
+            text=f"{p.name} · {p.tagline}\n{p.address} · {p.phone} · GSTIN {p.gstin}\n{p.licences}",
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+            anchor="w",
+            justify="left",
+        )
+        self.company_text.pack(fill="x")
+        if self.ctx.can(Permission.MANAGE_SETTINGS):
+            secondary_button(body, "Edit shop details", self.edit_company, width=150).pack(anchor="w", pady=(8, 0))
+
+    def edit_company(self) -> None:
+        p = self.ctx.company.profile()
+        fields = [
+            Field("name", "Shop name", default=p.name),
+            Field("tagline", "Tagline", default=p.tagline),
+            Field("address", "Address", default=p.address),
+            Field("phone", "Phone", default=p.phone),
+            Field("gstin", "GSTIN", default=p.gstin),
+            Field("licences", "Licence numbers", default=p.licences),
+            Field("footer", "Statement footer note", default=p.footer),
+        ]
+        if run_form(self, "Shop details", fields, lambda v: self.ctx.company.update(**v)):
+            p = self.ctx.company.profile()
+            self.company_text.configure(
+                text=f"{p.name} · {p.tagline}\n{p.address} · {p.phone} · GSTIN {p.gstin}\n{p.licences}"
+            )
+            self.ctx.audit.log("09", "shop details updated", self.ctx.username)
+            self.ctx.toast("Shop details saved", "success")
+
+    # Categories -----------------------------------------------------------------------
+    def _build_categories(self, scroll) -> None:
+        cats = self.ctx.categories
+        can_edit = self.ctx.can(Permission.MANAGE_SETTINGS)
+        card = Card(scroll, "Categories")
+        card.pack(fill="x", padx=4, pady=4)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(4, 16))
+        ctk.CTkLabel(
+            body,
+            text=(
+                "A best … D worst by score; E = defaulter (customers) / discontinued (items), set by hand only. "
+                "Tick the categories that feed the dashboard and reports."
+            ),
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+            anchor="w",
+            justify="left",
+            wraplength=900,
+        ).pack(fill="x", pady=(0, 6))
+
+        self.cust_cat_vars = {}
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        ctk.CTkLabel(row, text="Customers in reports:", font=theme.font(13), width=170, anchor="w").pack(side="left")
+        chosen = cats.customer_report_categories()
+        for c in "ABCDE":
+            var = ctk.BooleanVar(value=c in chosen)
+            self.cust_cat_vars[c] = var
+            ctk.CTkCheckBox(row, text=c, variable=var, width=50, font=theme.font(13)).pack(side="left", padx=4)
+
+        self.item_cat_vars = {}
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        ctk.CTkLabel(row, text="Items in reports:", font=theme.font(13), width=170, anchor="w").pack(side="left")
+        chosen = cats.item_report_categories()
+        for c in "ABCDE":
+            var = ctk.BooleanVar(value=c in chosen)
+            self.item_cat_vars[c] = var
+            ctk.CTkCheckBox(row, text=c, variable=var, width=50, font=theme.font(13)).pack(side="left", padx=4)
+
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x", pady=(8, 2))
+        ctk.CTkLabel(row, text="Score thresholds  A <", font=theme.font(13), width=170, anchor="w").pack(side="left")
+        t = cats.thresholds()
+        self.thr = []
+        for i, label in enumerate(("B <", "C <", "D ≥")):
+            e = ctk.CTkEntry(row, width=70, height=32, font=theme.font(13))
+            e.insert(0, f"{t[i]:g}")
+            e.pack(side="left", padx=(0, 4))
+            self.thr.append(e)
+            if i < 2:
+                ctk.CTkLabel(row, text=label, font=theme.font(13)).pack(side="left", padx=(4, 4))
+        self.exclude_e = ctk.BooleanVar(value=cats.exclude_defaulters_from_score())
+        ctk.CTkCheckBox(row, text="Keep E out of the score maths", variable=self.exclude_e, font=theme.font(13)).pack(
+            side="left", padx=16
+        )
+
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        ctk.CTkLabel(row, text="New customers start as", font=theme.font(13), width=170, anchor="w").pack(side="left")
+        self.default_cat = ctk.CTkOptionMenu(row, values=["A", "B", "C", "D"], width=70, height=32, font=theme.font(13))
+        self.default_cat.set(cats.default_customer_category())
+        self.default_cat.pack(side="left")
+        ctk.CTkLabel(row, text="   Item velocity (days since last sale)  A ≤", font=theme.font(13)).pack(side="left")
+        v = cats.velocity_days()
+        self.vel = []
+        for i, label in enumerate(("B ≤", "C ≤", "else D")):
+            e = ctk.CTkEntry(row, width=60, height=32, font=theme.font(13))
+            e.insert(0, str(v[i]))
+            e.pack(side="left", padx=(4, 2))
+            self.vel.append(e)
+            ctk.CTkLabel(row, text=label, font=theme.font(13)).pack(side="left", padx=(2, 2))
+
+        actions = ctk.CTkFrame(body, fg_color="transparent")
+        actions.pack(fill="x", pady=(10, 0))
+        if can_edit:
+            primary_button(actions, "Save category settings", self.save_categories, width=190).pack(side="left")
+            secondary_button(actions, "Re-score customers now", self.rescore, width=180).pack(side="left", padx=8)
+            secondary_button(actions, "Auto-categorise items", self.auto_items, width=170).pack(side="left")
+        else:
+            ctk.CTkLabel(
+                actions,
+                text="Only an administrator can change these.",
+                font=theme.font(12),
+                text_color=theme.color("muted"),
+            ).pack(side="left")
+        self.cat_status = ctk.CTkLabel(
+            body, text="", font=theme.font(12), text_color=theme.color("muted"), anchor="w", justify="left"
+        )
+        self.cat_status.pack(fill="x", pady=(8, 0))
+
+    def save_categories(self) -> None:
+        cats = self.ctx.categories
+        try:
+            cats.set_customer_report_categories([c for c, v in self.cust_cat_vars.items() if v.get()])
+            cats.set_item_report_categories([c for c, v in self.item_cat_vars.items() if v.get()])
+            cats.set_thresholds(*[float(e.get()) for e in self.thr])
+            cats.set_exclude_defaulters_from_score(bool(self.exclude_e.get()))
+            cats.set_default_customer_category(self.default_cat.get())
+            cats.set_velocity_days(*[int(float(e.get())) for e in self.vel])
+        except (ValidationError, ValueError) as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        self.ctx.audit.log("09", "category settings saved", self.ctx.username)
+        self.ctx.toast("Category settings saved", "success")
+        self.cat_status.configure(text="Saved. Dashboard and reports use the ticked categories from now on.")
+
+    def rescore(self) -> None:
+        if not confirm(
+            self, "Re-score", "Assign A-D to every customer by score?\nLocked and E customers are left as they are."
+        ):
+            return
+        report = self.ctx.categories.rescore_customers(self.ctx.username)
+        self.cat_status.configure(text="Customers re-scored: " + report.as_text())
+        self.ctx.toast(f"{report.changed} customers changed category", "success")
+
+    def auto_items(self) -> None:
+        if not confirm(
+            self,
+            "Auto-categorise items",
+            "Assign A-D to every item by days since its last sale?\nLocked and E items are left as they are.",
+        ):
+            return
+        report = self.ctx.categories.auto_categorize_items(self.ctx.username)
+        self.cat_status.configure(text="Items categorised: " + report.as_text())
+        self.ctx.toast(f"{report.changed} items changed category", "success")
 
     def _set_mode(self, value: str) -> None:
         self.ctx.app.apply_theme(value.lower())
@@ -123,6 +348,20 @@ class SettingsView(BaseView):
 
         if run_form(self, "Change password", fields, submit):
             self.ctx.toast("Password changed", "success")
+
+    def save_backup_prefs(self) -> None:
+        try:
+            self.ctx.backup.set_enabled(bool(self.auto_backup.get()))
+            self.ctx.backup.set_keep(int(self.keep_entry.get() or 14))
+        except ValueError as exc:
+            self.ctx.toast(str(exc), "error")
+
+    def rerun_setup(self) -> None:
+        if confirm(self, "Setup wizard", "Sign out and run the first-run setup again?"):
+            from hth.ui.views.setup import mark_setup
+
+            mark_setup(self.ctx.db, False)
+            self.ctx.app.logout()
 
     def backup(self) -> None:
         dest = self.ctx.settings.backup_dir / f"hth_{dt.datetime.now():%Y%m%d_%H%M%S}.db"

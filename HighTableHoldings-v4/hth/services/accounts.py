@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from collections.abc import Iterable
 
 from hth.db.connection import Database
-from hth.domain.constants import DATE_FMT, AuditCode, Tag, TxType
+from hth.domain.constants import CATEGORIES, DATE_FMT, AuditCode, Tag, TxType
 from hth.domain.interest import calculate_interest, parse_date
 from hth.domain.models import Customer, CustomerSummary, LedgerRow, Transaction
 from hth.services.audit import AuditService
@@ -17,7 +18,14 @@ class ValidationError(ValueError):
 
 
 def _customer(row) -> Customer:
-    return Customer(id=row["id"], name=row["name"], other_details=row["other_details"])
+    keys = row.keys()
+    return Customer(
+        id=row["id"],
+        name=row["name"],
+        other_details=row["other_details"],
+        category=row["category"] if "category" in keys else "C",
+        category_locked=bool(row["category_locked"]) if "category_locked" in keys else False,
+    )
 
 
 def _tx(row) -> Transaction:
@@ -69,17 +77,36 @@ class AccountsService:
         self.audit = AuditService(db)
 
     # Customers --------------------------------------------------------------------
-    def list_customers(self, search: str | None = None) -> list[Customer]:
+    def list_customers(self, search: str | None = None, categories: Iterable[str] | None = None) -> list[Customer]:
+        clauses, params = [], []
         if search:
             like = f"%{search.strip()}%"
-            rows = self.db.fetchall(
-                "SELECT * FROM customers WHERE name LIKE ? OR other_details LIKE ? "
-                "OR CAST(id AS TEXT) LIKE ? ORDER BY id",
-                (like, like, like),
-            )
-        else:
-            rows = self.db.fetchall("SELECT * FROM customers ORDER BY id")
+            clauses.append("(name LIKE ? OR other_details LIKE ? OR CAST(id AS TEXT) LIKE ?)")
+            params += [like, like, like]
+        if categories is not None:
+            cats = sorted(set(categories))
+            if not cats:
+                return []
+            clauses.append(f"category IN ({','.join('?' * len(cats))})")
+            params += cats
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        rows = self.db.fetchall(f"SELECT * FROM customers {where}ORDER BY id", tuple(params))
         return [_customer(r) for r in rows]
+
+    def set_category(self, customer_id: int, category: str, username: str, locked: bool = True) -> None:
+        category = (category or "").strip().upper()
+        if category not in CATEGORIES:
+            raise ValidationError(f"Category must be one of {', '.join(CATEGORIES)}.")
+        with self.db.connect():
+            self.db.execute(
+                "UPDATE customers SET category = ?, category_locked = ? WHERE id = ?",
+                (category, 1 if locked else 0, customer_id),
+            )
+            self.audit.log(
+                AuditCode.MODIFY,
+                f"customer {customer_id} category -> {category}{' (locked)' if locked else ''}",
+                username,
+            )
 
     def get_customer(self, customer_id: int) -> Customer | None:
         row = self.db.fetchone("SELECT * FROM customers WHERE id = ?", (customer_id,))
@@ -106,8 +133,13 @@ class AccountsService:
         tag = _validate_tag(tag)
 
         with self.db.connect():
+            default_cat = self.db.fetchone("SELECT value FROM settings WHERE key = 'customer.default_category'")
+            category = default_cat["value"].upper() if default_cat else "C"
+            if category not in CATEGORIES or category == "E":
+                category = "C"
             customer_id = self.db.execute(
-                "INSERT INTO customers (name, other_details) VALUES (?, ?)", (name, other_details)
+                "INSERT INTO customers (name, other_details, category) VALUES (?, ?, ?)",
+                (name, other_details, category),
             )
             if amount > 0:
                 self.add_transaction(
@@ -125,7 +157,7 @@ class AccountsService:
                 f"{name}, {date}, {other_details}, {amount}, {description.upper()}, {tx_type}, {tag}",
                 username,
             )
-        return Customer(customer_id, name, other_details)
+        return Customer(customer_id, name, other_details, category)
 
     def update_customer(self, customer_id: int, name: str, other_details: str, username: str) -> None:
         name = (name or "").strip().upper()
@@ -359,16 +391,33 @@ class AccountsService:
         today = today or dt.date.today()
         return (today - parse_date(row["d"])).days
 
-    def summaries(self, as_of: dt.date | None = None) -> list[CustomerSummary]:
-        """Every customer with balance, days since activity and the v3 account score."""
+    def summaries(
+        self,
+        as_of: dt.date | None = None,
+        categories: Iterable[str] | None = None,
+        exclude_from_score: Iterable[str] | None = None,
+    ) -> list[CustomerSummary]:
+        """Every customer with balance, days since activity and the v3 account score.
+
+        ``exclude_from_score``: categories left out of the min/max normalisation (they get
+        no score) so defaulters do not distort everyone else.  ``categories``: only these
+        are returned (all when None).
+        """
+        excluded = set(exclude_from_score or ())
         base = []
         for c in self.list_customers():
             base.append((c, self.get_balance(c.id, as_of), self.days_since_last_activity(c.id, as_of)))
-        scores = account_scores([(b, d) for _, b, d in base])
-        return [
-            CustomerSummary(c.id, c.name, c.other_details, balance, days, score)
-            for (c, balance, days), score in zip(base, scores, strict=True)
-        ]
+        population = [(b, d) for c, b, d in base if c.category not in excluded]
+        pop_scores = iter(account_scores(population))
+        out = []
+        for c, balance, days in base:
+            scored = c.category not in excluded
+            score = next(pop_scores) if scored else 0.0
+            out.append(CustomerSummary(c.id, c.name, c.other_details, balance, days, score, c.category, scored))
+        if categories is not None:
+            wanted = set(categories)
+            out = [s for s in out if s.category in wanted]
+        return out
 
 
 def account_scores(pairs: list[tuple[float, int]], alpha: float = 0.6, beta: float = 0.4) -> list[float]:

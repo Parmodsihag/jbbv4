@@ -7,10 +7,9 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
-from hth.domain.constants import TAG_CHOICES, Tag
-from hth.domain.units import compatible_units, normalize
+from hth.domain.units import normalize
 from hth.modules.crop_trading.rates import PROVIDERS, CsvRateProvider
-from hth.modules.crop_trading.service import CASH_BUYER, QUALITY_GRADES, CropService
+from hth.modules.crop_trading.service import CropService
 from hth.services.accounts import ValidationError
 from hth.services.export import export_rows, safe_filename
 from hth.services.permissions import Permission
@@ -19,12 +18,11 @@ from hth.ui.format import days_ago_str, money, open_path, today_str
 from hth.ui.format import qty as fmt_qty
 from hth.ui.views.base import BaseView
 from hth.ui.widgets.datatable import Column, DataTable
-from hth.ui.widgets.dialogs import Field, confirm, info, run_form
+from hth.ui.widgets.dialogs import Field, confirm, run_form
 from hth.ui.widgets.forms import (
     Card,
     DateField,
     LabeledEntry,
-    LabeledOption,
     LabeledWidget,
     danger_button,
     primary_button,
@@ -51,150 +49,56 @@ class CropTradingView(BaseView):
         self.svc = CropService(self.ctx.db)
         self.tabs = _tabview(self)
         self.tabs.pack(fill="both", expand=True, padx=4, pady=4)
-        for name in ("Purchase", "Sale", "Stock & rates", "Reports"):
+        for name in ("Lots & sales", "Stock & rates", "Reports"):
             self.tabs.add(name)
-        self.purchase = PurchasePanel(self.tabs.tab("Purchase"), self)
-        self.purchase.pack(fill="both", expand=True)
-        self.sale = SalePanel(self.tabs.tab("Sale"), self)
-        self.sale.pack(fill="both", expand=True)
+        self.lots = LotsPanel(self.tabs.tab("Lots & sales"), self)
+        self.lots.pack(fill="both", expand=True)
         self.stock = StockPanel(self.tabs.tab("Stock & rates"), self)
         self.stock.pack(fill="both", expand=True)
         self.reports = CropReportsPanel(self.tabs.tab("Reports"), self)
         self.reports.pack(fill="both", expand=True)
 
     def on_show(self, **kwargs) -> None:
-        for p in (self.purchase, self.sale, self.stock, self.reports):
+        for p in (self.lots, self.stock, self.reports):
             p.reload()
 
     def on_theme_change(self) -> None:
-        for p in (self.purchase, self.sale, self.stock, self.reports):
+        for p in (self.lots, self.stock, self.reports):
             for t in p.tables():
                 t.restyle()
 
-    # shared helpers ------------------------------------------------------------------------
     def crop_choices(self):
         return [(c.id, c.display) for c in self.svc.crops()]
 
-    def party_choices(self):
-        return [(c.id, c.display) for c in self.svc.parties()]
-
-    def quick_add_crop(self, box: SearchBox) -> None:
-        fields = [
-            Field("name", "Crop name"),
-            Field("unit", "Stock unit", "option", "KG", ["KG", "QTL", "LTR", "PCS", "BAG"]),
-        ]
-        created = {}
-
-        def submit(v):
-            created["item"] = self.svc.add_crop(v["name"], v["unit"], self.ctx.username)
-
-        if run_form(self, "New crop", fields, submit, "Create") and created:
-            box.refresh()
-            box.set(created["item"].id)
-            self.ctx.toast(f"Crop {created['item'].name} added", "success")
-
-    def quick_add_party(self, box: SearchBox, label: str) -> None:
-        created = {}
-
-        def submit(v):
-            created["c"] = self.svc.add_party(v["name"], v["details"], self.ctx.username)
-
-        if (
-            run_form(
-                self, f"New {label}", [Field("name", "Name"), Field("details", "Village / details")], submit, "Create"
-            )
-            and created
-        ):
-            box.refresh()
-            box.set(created["c"].id)
-            self.ctx.toast(f"{label.title()} {created['c'].name} added (account #{created['c'].id})", "success")
-
 
 # ------------------------------------------------------------------------------------------
-class PurchasePanel(ctk.CTkFrame):
+class LotsPanel(ctk.CTkFrame):
+    """Purchase lots and sales - entered on the Sales screen, reviewed (and deleted) here."""
+
     def __init__(self, master, view: CropTradingView):
         super().__init__(master, fg_color="transparent")
         self.view, self.ctx, self.svc = view, view.ctx, view.svc
-        self._crop = None
-        self.grid_columnconfigure(0, weight=2, uniform="p")
-        self.grid_columnconfigure(1, weight=3, uniform="p")
-        self.grid_rowconfigure(0, weight=1)
-
-        form = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        form.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", pady=(4, 4))
         ctk.CTkLabel(
-            form, text="BUY FROM FARMER", font=theme.font(12, "bold"), text_color=theme.color("muted"), anchor="w"
-        ).pack(fill="x")
-        self.date = DateField(form)
-        self.date.pack(fill="x", pady=3)
-        fw = LabeledWidget(form, "Farmer (account)")
-        fw.pack(fill="x", pady=3)
-        self.farmer = SearchBox(fw.body, self.view.party_choices, "Search farmer / account")
-        self.farmer.pack(side="left", fill="x", expand=True)
-        secondary_button(fw.body, "+", lambda: self.view.quick_add_party(self.farmer, "farmer"), width=36).pack(
-            side="left", padx=(6, 0)
-        )
-        cw = LabeledWidget(form, "Crop")
-        cw.pack(fill="x", pady=3)
-        self.crop = SearchBox(cw.body, self.view.crop_choices, "Search crop", on_select=self._on_crop)
-        self.crop.pack(side="left", fill="x", expand=True)
-        secondary_button(cw.body, "+", lambda: self.view.quick_add_crop(self.crop), width=36).pack(
-            side="left", padx=(6, 0)
-        )
-        self.crop.var.trace_add("write", lambda *_: self._on_crop_text())
-        g = ctk.CTkFrame(form, fg_color="transparent")
-        g.pack(fill="x")
-        g.grid_columnconfigure((0, 1, 2), weight=1)
-        self.gross = LabeledEntry(g, "Gross qty", placeholder="0")
-        self.gross.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=3)
-        self.unit = LabeledOption(g, "Unit", ["KG", "QTL", "G"], "KG", command=lambda _v: self._calc())
-        self.unit.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=3)
-        self.deduction = LabeledEntry(g, "Deduction (kaat)", default="0")
-        self.deduction.grid(row=0, column=2, sticky="ew", pady=3)
-        self.rate = LabeledEntry(g, "Rate per stock unit", placeholder="0.00")
-        self.rate.grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=3)
-        self.quality = LabeledOption(g, "Quality", QUALITY_GRADES, "A")
-        self.quality.grid(row=1, column=1, sticky="ew", padx=(0, 6), pady=3)
-        self.tag = LabeledOption(g, "Ledger tag", TAG_CHOICES, Tag.NO_INTEREST.label)
-        self.tag.grid(row=1, column=2, sticky="ew", pady=3)
-        self.notes = LabeledEntry(form, "Notes (moisture, bags, vehicle…)")
-        self.notes.pack(fill="x", pady=3)
-        for w in (self.gross, self.deduction, self.rate):
-            w.var.trace_add("write", lambda *_: self._calc())
-        self.calc_label = ctk.CTkLabel(form, text="Net: 0   Amount: 0.00", font=theme.font(16, "bold"), anchor="w")
-        self.calc_label.pack(fill="x", pady=(8, 0))
-        primary_button(form, "Record purchase", self.submit).pack(fill="x", pady=(6, 0))
+            bar,
+            text="Record crop purchases and sales on the Sales screen (pick a crop item).",
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+        ).pack(side="left")
+        primary_button(bar, "Go to Sales", lambda: self.ctx.navigate("sales"), width=110).pack(side="left", padx=10)
+        secondary_button(bar, "+ New crop", self.new_crop, width=100).pack(side="left")
+        secondary_button(bar, "↻", self.reload, width=40).pack(side="right")
 
-        ctk.CTkLabel(
-            form, text="PAY FARMER", font=theme.font(12, "bold"), text_color=theme.color("muted"), anchor="w"
-        ).pack(fill="x", pady=(18, 0))
-        pw = LabeledWidget(form, "Farmer")
-        pw.pack(fill="x", pady=3)
-        self.pay_farmer = SearchBox(
-            pw.body, self.view.party_choices, "Search farmer", on_select=lambda k, _l: self._show_owed(k)
-        )
-        self.pay_farmer.pack(fill="x")
-        self.owed_label = ctk.CTkLabel(form, text="", font=theme.font(12), text_color=theme.color("muted"), anchor="w")
-        self.owed_label.pack(fill="x")
-        g2 = ctk.CTkFrame(form, fg_color="transparent")
-        g2.pack(fill="x")
-        g2.grid_columnconfigure((0, 1), weight=1)
-        self.pay_date = DateField(g2)
-        self.pay_date.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=3)
-        self.pay_amount = LabeledEntry(g2, "Amount", placeholder="0.00")
-        self.pay_amount.grid(row=0, column=1, sticky="ew", pady=3)
-        secondary_button(form, "Record payment", self.pay).pack(fill="x", pady=(6, 0))
-
-        right = Card(self)
-        right.grid(row=0, column=1, sticky="nsew")
-        bar = ctk.CTkFrame(right, fg_color="transparent")
-        bar.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkLabel(bar, text="Recent lots", font=theme.font(17, "bold")).pack(side="left")
+        lots_card = Card(self)
+        lots_card.pack(fill="both", expand=True, pady=(0, 6))
+        lb = ctk.CTkFrame(lots_card, fg_color="transparent")
+        lb.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(lb, text="Purchase lots", font=theme.font(17, "bold")).pack(side="left")
         if self.ctx.can(Permission.DELETE_RECORDS):
-            danger_button(bar, "Delete lot", self.delete_lot, width=100).pack(side="right")
-        secondary_button(bar, "↻", self.reload, width=40).pack(side="right", padx=6)
-        self.table = DataTable(
-            right,
+            danger_button(lb, "Delete lot", self.delete_lot, width=100).pack(side="right")
+        self.lots_table = DataTable(
+            lots_card,
             [
                 Column("id", "Lot", 55, "e", "int"),
                 Column("date", "Date", 95),
@@ -211,15 +115,39 @@ class PurchasePanel(ctk.CTkFrame):
             on_double_click=lambda r: self.ctx.navigate("customers", customer_id=r[11]),
             row_tags=lambda r: ["muted"] if r[7] <= 0 else [],
         )
-        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 12))
+        self.lots_table.pack(fill="both", expand=True, padx=12, pady=(4, 12))
+
+        sales_card = Card(self)
+        sales_card.pack(fill="both", expand=True)
+        sb = ctk.CTkFrame(sales_card, fg_color="transparent")
+        sb.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(sb, text="Sales", font=theme.font(17, "bold")).pack(side="left")
+        if self.ctx.can(Permission.DELETE_RECORDS):
+            danger_button(sb, "Delete sale", self.delete_sale, width=100).pack(side="right")
+        self.sales_table = DataTable(
+            sales_card,
+            [
+                Column("id", "Sale", 55, "e", "int"),
+                Column("date", "Date", 95),
+                Column("buyer", "Buyer", 160, stretch=True),
+                Column("crop", "Crop", 130),
+                Column("qty", "Qty", 80, "e", "qty"),
+                Column("rate", "Rate", 80, "e", "money"),
+                Column("amount", "Amount", 100, "e", "money"),
+                Column("cost", "Cost", 100, "e", "money"),
+                Column("margin", "Margin", 100, "e", "money"),
+                Column("pct", "%", 60, "e", "qty"),
+                Column("short", "Short", 60, "e", "qty"),
+            ],
+            on_double_click=lambda r: self.ctx.navigate("customers", customer_id=r[11]) if r[11] else None,
+            row_tags=lambda r: ["neg"] if r[8] < 0 else (["warn"] if r[10] > 0 else ["pos"]),
+        )
+        self.sales_table.pack(fill="both", expand=True, padx=12, pady=(4, 12))
 
     def tables(self):
-        return [self.table]
+        return [self.lots_table, self.sales_table]
 
     def reload(self) -> None:
-        self.farmer.refresh()
-        self.crop.refresh()
-        self.pay_farmer.refresh()
         lots = self.svc.lots(limit=300)
         rows = [
             (
@@ -238,102 +166,49 @@ class PurchasePanel(ctk.CTkFrame):
             )
             for x in lots
         ]
-        self.table.set_rows(
-            rows, f"{len(rows)} lots · {money(sum(r[9] for r in rows))} · double-click opens the farmer's ledger"
+        self.lots_table.set_rows(
+            rows, f"{len(rows)} lots · {money(sum(r[9] for r in rows))} · double-click opens the ledger"
         )
-
-    def _on_crop(self, item_id, _label=None) -> None:
-        self._crop = self.ctx.inventory.get_item(item_id)
-        if self._crop:
-            units = compatible_units(self._crop.unit)
-            self.unit.set_values(units)
-            self.unit.set(units[0])
-            self._calc()
-
-    def _on_crop_text(self) -> None:
-        key = self.crop.get_key()
-        if key is not None and (self._crop is None or self._crop.id != key):
-            self._on_crop(key)
-
-    def _calc(self) -> None:
-        try:
-            gross = float(self.gross.get() or 0)
-            ded = float(self.deduction.get() or 0)
-            rate = float(self.rate.get() or 0)
-        except ValueError:
-            self.calc_label.configure(text="Net: -   Amount: -")
-            return
-        net = gross - ded
-        unit = normalize(self.unit.get())
-        text = f"Net: {fmt_qty(net)} {unit}"
-        if self._crop and unit != normalize(self._crop.unit):
-            from hth.domain.units import UnitError, convert
-
-            try:
-                net_stock = convert(net, unit, self._crop.unit)
-                text += f" = {fmt_qty(net_stock)} {normalize(self._crop.unit)}"
-                net = net_stock
-            except UnitError:
-                text += " (unit mismatch)"
-        self.calc_label.configure(
-            text=f"{text}   Amount: {money(net * rate)}",
-            text_color=theme.color("danger") if ded > gross else theme.color("text"),
-        )
-
-    def _show_owed(self, farmer_id) -> None:
-        bal = self.ctx.accounts.get_balance(farmer_id)
-        self.owed_label.configure(
-            text=f"We owe {money(-bal)}" if bal < 0 else f"Farmer owes us {money(bal)}" if bal > 0 else "Settled"
-        )
-
-    def submit(self) -> None:
-        try:
-            farmer_id, crop_id = self.farmer.get_key(), self.crop.get_key()
-            if farmer_id is None:
-                raise ValidationError("Pick a farmer from the list (or add one with +).")
-            if crop_id is None:
-                raise ValidationError("Pick a crop from the list (or add one with +).")
-            lot = self.svc.record_purchase(
-                self.date.get(),
-                farmer_id,
-                crop_id,
-                self.gross.get() or 0,
-                self.deduction.get() or 0,
-                self.rate.get() or 0,
-                self.unit.get(),
-                self.ctx.username,
-                self.quality.get(),
-                self.notes.get(),
-                self.tag.get()[0],
+        sales = self.svc.sales(limit=300)
+        srows = [
+            (
+                s.id,
+                s.date,
+                s.buyer_name,
+                s.crop_name,
+                s.qty,
+                s.rate,
+                s.amount,
+                s.cost,
+                s.margin,
+                s.margin_pct,
+                s.short_qty,
+                s.buyer_id,
             )
-        except ValidationError as exc:
-            self.ctx.toast(str(exc), "error")
-            return
-        self.ctx.toast(
-            f"Lot #{lot.id}: {fmt_qty(lot.qty)} {lot.unit} {lot.crop_name} for {money(lot.amount)}", "success"
+            for s in sales
+        ]
+        self.sales_table.set_rows(
+            srows,
+            f"{len(srows)} sales · revenue {money(sum(r[6] for r in srows))}"
+            f" · margin {money(sum(r[8] for r in srows))}",
         )
-        for w in (self.gross, self.rate, self.notes):
-            w.set("")
-        self.deduction.set("0")
-        self.reload()
-        self.view.sale.reload()
-        self.view.stock.reload()
 
-    def pay(self) -> None:
-        try:
-            fid = self.pay_farmer.get_key()
-            if fid is None:
-                raise ValidationError("Pick a farmer.")
-            self.svc.pay_farmer(fid, self.pay_date.get(), self.pay_amount.get() or 0, self.ctx.username)
-        except ValidationError as exc:
-            self.ctx.toast(str(exc), "error")
-            return
-        self.ctx.toast("Payment recorded", "success")
-        self.pay_amount.set("")
-        self._show_owed(fid)
+    def new_crop(self) -> None:
+        fields = [
+            Field("name", "Crop name"),
+            Field("unit", "Stock unit", "option", "KG", ["KG", "QTL", "LTR", "PCS", "BAG"]),
+        ]
+        created = {}
+
+        def submit(v):
+            created["item"] = self.svc.add_crop(v["name"], v["unit"], self.ctx.username)
+
+        if run_form(self, "New crop", fields, submit, "Create") and created:
+            self.ctx.toast(f"Crop {created['item'].name} added - pick it on the Sales screen", "success")
+            self.view.stock.reload()
 
     def delete_lot(self) -> None:
-        row = self.table.selected_row()
+        row = self.lots_table.selected_row()
         if row and confirm(
             self,
             "Delete lot",
@@ -348,243 +223,8 @@ class PurchasePanel(ctk.CTkFrame):
             self.reload()
             self.view.stock.reload()
 
-
-# ------------------------------------------------------------------------------------------
-class SalePanel(ctk.CTkFrame):
-    def __init__(self, master, view: CropTradingView):
-        super().__init__(master, fg_color="transparent")
-        self.view, self.ctx, self.svc = view, view.ctx, view.svc
-        self._crop = None
-        self.grid_columnconfigure(0, weight=2, uniform="s")
-        self.grid_columnconfigure(1, weight=3, uniform="s")
-        self.grid_rowconfigure(0, weight=1)
-
-        form = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        form.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        ctk.CTkLabel(
-            form, text="SELL TO BUYER", font=theme.font(12, "bold"), text_color=theme.color("muted"), anchor="w"
-        ).pack(fill="x")
-        self.date = DateField(form)
-        self.date.pack(fill="x", pady=3)
-        bw = LabeledWidget(form, "Buyer (account) - leave empty for a cash sale")
-        bw.pack(fill="x", pady=3)
-        self.buyer = SearchBox(bw.body, self.view.party_choices, "Search buyer / account", allow_free_text=True)
-        self.buyer.pack(side="left", fill="x", expand=True)
-        secondary_button(bw.body, "+", lambda: self.view.quick_add_party(self.buyer, "buyer"), width=36).pack(
-            side="left", padx=(6, 0)
-        )
-        cw = LabeledWidget(form, "Crop")
-        cw.pack(fill="x", pady=3)
-        self.crop = SearchBox(cw.body, self.view.crop_choices, "Search crop", on_select=self._on_crop)
-        self.crop.pack(fill="x")
-        self.crop.var.trace_add("write", lambda *_: self._on_crop_text())
-        self.stock_label = ctk.CTkLabel(form, text="", font=theme.font(12), text_color=theme.color("muted"), anchor="w")
-        self.stock_label.pack(fill="x")
-        g = ctk.CTkFrame(form, fg_color="transparent")
-        g.pack(fill="x")
-        g.grid_columnconfigure((0, 1, 2), weight=1)
-        self.qty = LabeledEntry(g, "Quantity", placeholder="0")
-        self.qty.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=3)
-        self.unit = LabeledOption(g, "Unit", ["KG", "QTL", "G"], "KG", command=lambda _v: self._calc())
-        self.unit.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=3)
-        self.rate = LabeledEntry(g, "Rate per stock unit", placeholder="0.00")
-        self.rate.grid(row=0, column=2, sticky="ew", pady=3)
-        self.tag = LabeledOption(g, "Ledger tag", TAG_CHOICES, Tag.NO_INTEREST.label)
-        self.tag.grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=3)
-        self.allow_short = ctk.CTkCheckBox(g, text="Allow selling short", font=theme.font(12))
-        self.allow_short.grid(row=1, column=1, columnspan=2, sticky="w", pady=(14, 0))
-        self.notes = LabeledEntry(form, "Notes")
-        self.notes.pack(fill="x", pady=3)
-        for w in (self.qty, self.rate):
-            w.var.trace_add("write", lambda *_: self._calc())
-        self.calc_label = ctk.CTkLabel(form, text="Amount: 0.00", font=theme.font(16, "bold"), anchor="w")
-        self.calc_label.pack(fill="x", pady=(8, 0))
-        self.margin_label = ctk.CTkLabel(
-            form, text="", font=theme.font(12), text_color=theme.color("muted"), anchor="w", justify="left"
-        )
-        self.margin_label.pack(fill="x")
-        primary_button(form, "Record sale", self.submit).pack(fill="x", pady=(6, 0))
-
-        ctk.CTkLabel(
-            form, text="RECEIVE FROM BUYER", font=theme.font(12, "bold"), text_color=theme.color("muted"), anchor="w"
-        ).pack(fill="x", pady=(18, 0))
-        rw = LabeledWidget(form, "Buyer")
-        rw.pack(fill="x", pady=3)
-        self.recv_buyer = SearchBox(
-            rw.body, self.view.party_choices, "Search buyer", on_select=lambda k, _l: self._show_due(k)
-        )
-        self.recv_buyer.pack(fill="x")
-        self.due_label = ctk.CTkLabel(form, text="", font=theme.font(12), text_color=theme.color("muted"), anchor="w")
-        self.due_label.pack(fill="x")
-        g2 = ctk.CTkFrame(form, fg_color="transparent")
-        g2.pack(fill="x")
-        g2.grid_columnconfigure((0, 1), weight=1)
-        self.recv_date = DateField(g2)
-        self.recv_date.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=3)
-        self.recv_amount = LabeledEntry(g2, "Amount", placeholder="0.00")
-        self.recv_amount.grid(row=0, column=1, sticky="ew", pady=3)
-        secondary_button(form, "Record receipt", self.receive).pack(fill="x", pady=(6, 0))
-
-        right = Card(self)
-        right.grid(row=0, column=1, sticky="nsew")
-        bar = ctk.CTkFrame(right, fg_color="transparent")
-        bar.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkLabel(bar, text="Recent sales", font=theme.font(17, "bold")).pack(side="left")
-        if self.ctx.can(Permission.DELETE_RECORDS):
-            danger_button(bar, "Delete sale", self.delete_sale, width=100).pack(side="right")
-        secondary_button(bar, "↻", self.reload, width=40).pack(side="right", padx=6)
-        self.table = DataTable(
-            right,
-            [
-                Column("id", "Sale", 55, "e", "int"),
-                Column("date", "Date", 95),
-                Column("buyer", "Buyer", 160, stretch=True),
-                Column("crop", "Crop", 130),
-                Column("qty", "Qty", 80, "e", "qty"),
-                Column("rate", "Rate", 80, "e", "money"),
-                Column("amount", "Amount", 100, "e", "money"),
-                Column("cost", "Cost", 100, "e", "money"),
-                Column("margin", "Margin", 100, "e", "money"),
-                Column("pct", "%", 60, "e", "qty"),
-                Column("short", "Short", 60, "e", "qty"),
-            ],
-            row_tags=lambda r: ["neg"] if r[8] < 0 else (["warn"] if r[10] > 0 else ["pos"]),
-        )
-        self.table.pack(fill="both", expand=True, padx=12, pady=(4, 12))
-
-    def tables(self):
-        return [self.table]
-
-    def reload(self) -> None:
-        self.buyer.refresh()
-        self.crop.refresh()
-        self.recv_buyer.refresh()
-        sales = self.svc.sales(limit=300)
-        rows = [
-            (
-                s.id,
-                s.date,
-                s.buyer_name,
-                s.crop_name,
-                s.qty,
-                s.rate,
-                s.amount,
-                s.cost,
-                s.margin,
-                s.margin_pct,
-                s.short_qty,
-            )
-            for s in sales
-        ]
-        self.table.set_rows(
-            rows,
-            f"{len(rows)} sales · revenue {money(sum(r[6] for r in rows))} · margin {money(sum(r[8] for r in rows))}",
-        )
-        if self._crop:
-            self._on_crop(self._crop.id)
-
-    def _on_crop(self, item_id, _label=None) -> None:
-        self._crop = self.ctx.inventory.get_item(item_id)
-        if self._crop is None:
-            return
-        units = compatible_units(self._crop.unit)
-        self.unit.set_values(units)
-        self.unit.set(units[0])
-        stock = next((s for s in self.svc.stock() if s.item.id == self._crop.id), None)
-        if stock:
-            rate_txt = f" · market {money(stock.market_rate)} ({stock.market_date})" if stock.market_rate else ""
-            self.stock_label.configure(
-                text=f"In stock {fmt_qty(stock.qty)} {normalize(self._crop.unit)}"
-                f" · avg cost {money(stock.avg_cost)}{rate_txt}"
-            )
-        self._calc()
-
-    def _on_crop_text(self) -> None:
-        key = self.crop.get_key()
-        if key is not None and (self._crop is None or self._crop.id != key):
-            self._on_crop(key)
-
-    def _calc(self) -> None:
-        try:
-            q = float(self.qty.get() or 0)
-            rate = float(self.rate.get() or 0)
-        except ValueError:
-            self.calc_label.configure(text="Amount: -")
-            return
-        if not self._crop:
-            self.calc_label.configure(text=f"Amount: {money(q * rate)}")
-            return
-        from hth.domain.units import UnitError, convert
-
-        try:
-            q_stock = convert(q, self.unit.get(), self._crop.unit)
-        except UnitError:
-            self.calc_label.configure(text="Amount: - (unit mismatch)")
-            return
-        amount = q_stock * rate
-        self.calc_label.configure(text=f"Amount: {money(amount)}")
-        if q_stock > 0:
-            pv = self.svc.preview_cost(self._crop.id, q_stock)
-            margin = amount - pv.cost
-            short = f"   ⚠ {fmt_qty(pv.short_qty)} short" if pv.short_qty > 0 else ""
-            self.margin_label.configure(
-                text=f"FIFO cost {money(pv.cost)} from {len(pv.allocations)} lot(s) → margin {money(margin)}{short}",
-                text_color=theme.color("danger") if pv.short_qty > 0 or margin < 0 else theme.color("success"),
-            )
-        else:
-            self.margin_label.configure(text="")
-
-    def _show_due(self, buyer_id) -> None:
-        bal = self.ctx.accounts.get_balance(buyer_id)
-        self.due_label.configure(
-            text=f"Buyer owes {money(bal)}" if bal > 0 else f"We owe {money(-bal)}" if bal < 0 else "Settled"
-        )
-
-    def submit(self) -> None:
-        try:
-            crop_id = self.crop.get_key()
-            if crop_id is None:
-                raise ValidationError("Pick a crop from the list.")
-            sale = self.svc.record_sale(
-                self.date.get(),
-                crop_id,
-                self.qty.get() or 0,
-                self.rate.get() or 0,
-                self.unit.get(),
-                self.ctx.username,
-                buyer_id=self.buyer.get_key(),
-                buyer_name=self.buyer.get_text() or CASH_BUYER,
-                tag=self.tag.get()[0],
-                notes=self.notes.get(),
-                allow_short=bool(self.allow_short.get()),
-            )
-        except ValidationError as exc:
-            self.ctx.toast(str(exc), "error")
-            return
-        self.ctx.toast(
-            f"Sale #{sale.id}: {money(sale.amount)} · margin {money(sale.margin)} ({sale.margin_pct:g}%)", "success"
-        )
-        for w in (self.qty, self.rate, self.notes):
-            w.set("")
-        self.reload()
-        self.view.purchase.reload()
-        self.view.stock.reload()
-
-    def receive(self) -> None:
-        try:
-            bid = self.recv_buyer.get_key()
-            if bid is None:
-                raise ValidationError("Pick a buyer.")
-            self.svc.receive_from_buyer(bid, self.recv_date.get(), self.recv_amount.get() or 0, self.ctx.username)
-        except ValidationError as exc:
-            self.ctx.toast(str(exc), "error")
-            return
-        self.ctx.toast("Receipt recorded", "success")
-        self.recv_amount.set("")
-        self._show_due(bid)
-
     def delete_sale(self) -> None:
-        row = self.table.selected_row()
+        row = self.sales_table.selected_row()
         if row and confirm(
             self,
             "Delete sale",
@@ -593,7 +233,6 @@ class SalePanel(ctk.CTkFrame):
         ):
             self.svc.delete_sale(row[0], self.ctx.username)
             self.reload()
-            self.view.purchase.reload()
             self.view.stock.reload()
 
 
@@ -964,6 +603,3 @@ class CropReportsPanel(ctk.CTkFrame):
         self.ctx.toast(f"Saved {path.name}", "success")
         if confirm(self, "Export", f"Saved to\n{path}\n\nOpen it now?"):
             open_path(path)
-
-
-_ = info  # re-exported helper kept for dialogs parity

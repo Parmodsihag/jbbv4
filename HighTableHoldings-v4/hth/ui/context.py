@@ -11,12 +11,17 @@ from hth.domain.models import User
 from hth.services.accounts import AccountsService
 from hth.services.audit import AuditService
 from hth.services.auth import AuthService
+from hth.services.backup import BackupService
+from hth.services.categories import CategoryService
+from hth.services.company import CompanyService
 from hth.services.integrity import IntegrityService
 from hth.services.inventory import InventoryService
 from hth.services.krar import KrarService
 from hth.services.permissions import Permission, has_permission
+from hth.services.reminders import ReminderService
 from hth.services.reports import ReportsService
 from hth.services.sales import SalesService
+from hth.services.statements import StatementService
 
 if TYPE_CHECKING:
     from hth.ui.app import App
@@ -36,6 +41,11 @@ class AppContext:
     audit: AuditService = field(init=False)
     auth: AuthService = field(init=False)
     integrity: IntegrityService = field(init=False)
+    categories: CategoryService = field(init=False)
+    statements: StatementService = field(init=False)
+    company: CompanyService = field(init=False)
+    reminders: ReminderService = field(init=False)
+    backup: BackupService = field(init=False)
 
     def __post_init__(self) -> None:
         self.accounts = AccountsService(self.db)
@@ -46,6 +56,11 @@ class AppContext:
         self.audit = AuditService(self.db)
         self.auth = AuthService(self.db)
         self.integrity = IntegrityService(self.db)
+        self.categories = CategoryService(self.db)
+        self.statements = StatementService(self.db)
+        self.company = CompanyService(self.db)
+        self.reminders = ReminderService(self.db)
+        self.backup = BackupService(self.db, self.settings)
 
     @property
     def username(self) -> str:

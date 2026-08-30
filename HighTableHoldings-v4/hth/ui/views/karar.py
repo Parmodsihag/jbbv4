@@ -84,6 +84,9 @@ class KararView(BaseView):
         if self.ctx.can(Permission.DELETE_RECORDS):
             danger_button(bar, "Delete krar", self.delete_krar, width=100).pack(side="right")
         secondary_button(bar, "↻", self.reload, width=40).pack(side="right", padx=6)
+        secondary_button(bar, "Copy all shown", self.copy_all, width=120).pack(side="right", padx=6)
+        secondary_button(bar, "WhatsApp", self.whatsapp, width=90).pack(side="right", padx=6)
+        secondary_button(bar, "Copy reminder", self.copy_reminder, width=120).pack(side="right", padx=6)
         self.table = DataTable(
             right,
             [
@@ -164,6 +167,46 @@ class KararView(BaseView):
         self.settle_account.clear()
         self.settle_account.refresh()
         self.reload()
+
+    def _selected_reminder(self):
+        row = self.table.selected_row()
+        if row is None:
+            self.ctx.toast("Select a krar first", "warning")
+            return None
+        return self.ctx.reminders.build(row[7], row[3])
+
+    def _copy(self, text: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.update()
+
+    def copy_reminder(self) -> None:
+        r = self._selected_reminder()
+        if r:
+            self._copy(r.text)
+            self.ctx.toast(f"Reminder for {r.customer_name.title()} copied - paste it in WhatsApp / SMS", "success")
+
+    def whatsapp(self) -> None:
+        r = self._selected_reminder()
+        if r is None:
+            return
+        if not r.whatsapp_url:
+            self._copy(r.text)
+            self.ctx.toast("No phone number in the account details - text copied instead", "warning")
+            return
+        import webbrowser
+
+        webbrowser.open(r.whatsapp_url)
+        self.ctx.audit.log("07", f"whatsapp reminder to customer {r.customer_id}", self.ctx.username)
+
+    def copy_all(self) -> None:
+        rows = self.table.rows
+        if not rows:
+            self.ctx.toast("Nothing to copy", "warning")
+            return
+        texts = [self.ctx.reminders.build(r[7], r[3]).text for r in rows]
+        self._copy("\n\n".join(texts))
+        self.ctx.toast(f"{len(texts)} reminders copied", "success")
 
     def delete_krar(self) -> None:
         row = self.table.selected_row()

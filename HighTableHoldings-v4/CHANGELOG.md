@@ -1,5 +1,72 @@
 # Changelog
 
+## 4.7.0 — 2026-08-30
+
+- **Payment reminders** on the Karar screen: copy a message, open WhatsApp (when a mobile
+  number is in the account details), copy all shown; editable template in Settings.
+- **Automatic daily backup** on the first start of each day (`hth_auto_YYYYMMDD.db`),
+  pruned to the last N; toggle and count in Settings.
+- **First-run wizard**: shop details, new passwords (defaults refused), optional v3 import;
+  rerun from Settings.
+- **Global search** (`Ctrl+K` / header button) across accounts, items and bills.
+
+## 4.6.0 — 2026-08-30
+
+- **Customer statement**: ledger → *Statement* → date range → print-ready HTML in the
+  exports folder, opened in the browser (print / save as PDF). Same rows and running
+  balance as the screen; opening/closing balances, period totals, interest column.
+- **Shop details** (name, tagline, address, phone, GSTIN, licences, footer) in Settings,
+  stored in the database; used by statements now and by invoices next.
+
+## 4.5.1 — 2026-08-30
+
+- **Unit change converts history.** Edit item → Unit now converts every stock movement,
+  crop lot / sale / allocation and market rate to the new unit (automatic factor for related
+  units, asked for unrelated ones, or relabel-only on request). Per-unit prices are divided
+  by the same factor so money values are unchanged. Useful for imported items that were
+  stored as packets but are sold loose.
+
+## 4.5.0 — 2026-08-30
+
+- **Finance module** (`hth/modules/finance`, sidebar *Finance*, `Alt+F`): multiple money
+  accounts (cash / bank / UPI) with opening balances; cash book with running balance;
+  expenses by head, other income, transfers, capital in / drawings; expense & income heads;
+  recurring expenses with one-click posting; reports: cash flow, profit & loss, expenses by
+  head, monthly expenses, account balances. Permissions `finance` (all) and
+  `finance_reports` (admin: reports, setup, delete). Migration 5; audit code `12`.
+- **Sales screen**: a *Money account* picker appears for money entries (item CASH / free
+  text); customer receipts and payments are written to the cash book automatically, linked
+  to the ledger entry. Stock movements now store their value for the P&L.
+- Dashboard: *Cash & bank* tile.
+
+## 4.4.0 — 2026-08-30
+
+- **Customer & item categories A–E** stored on each record (migration 4). E = defaulter /
+  discontinued, manual only, locked; manual assignment of any category locks it.
+- **Re-score customers** (Settings) maps the account score to A–D by configurable thresholds,
+  skipping locked and E; **Auto-categorise items** by days since last sale.
+- Setting *Keep E out of the score maths* (default on) excludes defaulters from score
+  normalisation.
+- **Report / dashboard scope**: Settings choose the categories included (default A–D); each
+  customer/item report gets a *Scope: Per settings / All categories* switch. Dashboard KPIs,
+  aging, top debtors, monthly flow, interest summary, customer activity, stock value, item
+  movement, low/expiring/dead stock all honour it.
+- Accounts and Items lists: *Cat* column, category filter; ledger and item headers show the
+  category with a *Category* button. New customers start in the configurable default (C).
+- `settings` table now backs a `SettingsService` for shared application settings.
+
+## 4.3.0 — 2026-08-30
+
+- **Crop trades on the main Sales screen.** Picking a crop item (type C) reveals the crop
+  fields: Credit = purchase lot from the farmer (gross, deduction/kaat, quality, notes),
+  Debit = FIFO-costed sale to the buyer with a live cost/margin preview and *Allow selling
+  short*. One entry point for all money and stock movements; the crop module registers a
+  handler with the sales service, so tools and the UI behave identically.
+- Crop Trade screen now has *Lots & sales* (review, delete, new crop), *Stock & rates* and
+  *Reports*; its separate purchase/sale forms are gone.
+- Sales buttons renamed **Debit · sale / pay out** and **Credit · receive / purchase**, with
+  an explanation of both meanings; today's list shows crop purchases and sales.
+
 ## 4.2.0 — 2026-08-30
 
 - **Crop trading module** (`hth/modules/crop_trading`, sidebar *Crop Trade*, `Alt+C`):

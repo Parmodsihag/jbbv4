@@ -7,6 +7,7 @@ import datetime as dt
 import customtkinter as ctk
 
 from hth.domain.constants import ITEM_TYPES, PAKKA_KACHA, UNITS
+from hth.domain.units import normalize
 from hth.services.accounts import ValidationError
 from hth.services.export import export_rows, safe_filename
 from hth.services.permissions import Permission
@@ -163,9 +164,10 @@ class ItemListPanel(ctk.CTkFrame):
                 Column("gst", "GST%", 60, "e", "qty"),
                 Column("type", "Type", 50, "center"),
                 Column("pk", "P/K", 45, "center"),
+                Column("cat", "Cat", 45, "center"),
             ],
             on_double_click=lambda r: self.view.show_history(r[0]),
-            row_tags=lambda r: ["warn"] if r[4] <= 0 else [],
+            row_tags=lambda r: (["muted"] if r[12] == "E" else []) + (["warn"] if r[4] <= 0 else []),
         )
         ctk.CTkLabel(
             self,
@@ -190,6 +192,7 @@ class ItemListPanel(ctk.CTkFrame):
                 s.item.gst_rate,
                 s.item.item_type,
                 s.item.pakka_kacha,
+                s.item.category,
             )
             for s in self.ctx.inventory.summaries()
         ]
@@ -219,6 +222,7 @@ class ItemHistoryPanel(ctk.CTkFrame):
             secondary_button(tools, "Add movement", self.add_movement, width=120).pack(side="left", padx=(12, 6))
             secondary_button(tools, "Edit movement", self.edit_movement, width=120).pack(side="left", padx=6)
             secondary_button(tools, "Edit item", self.edit_item, width=100).pack(side="left", padx=6)
+            secondary_button(tools, "Category", self.set_category, width=90).pack(side="left", padx=6)
         if self.ctx.can(Permission.DELETE_RECORDS):
             danger_button(tools, "Delete movement", self.delete_movement, width=130).pack(side="right", padx=(6, 0))
             danger_button(tools, "Delete item", self.delete_item, width=110).pack(side="right")
@@ -242,7 +246,11 @@ class ItemHistoryPanel(ctk.CTkFrame):
         if self.item is None:
             self.view.show_list()
             return
-        self.name_label.configure(text=f"#{self.item.id}  {self.item.name}  ·  {self.item.batch}  ·  {self.item.unit}")
+        lock = " 🔒" if self.item.category_locked else ""
+        self.name_label.configure(
+            text=f"#{self.item.id}  {self.item.name}  ·  {self.item.batch}  ·  {self.item.unit}"
+            f"  ·  category {self.item.category}{lock}"
+        )
         rows, running = [], 0.0
         for t in self.ctx.inventory.get_item_transactions(item_id):
             running += t.received - t.sale
@@ -340,22 +348,90 @@ class ItemHistoryPanel(ctk.CTkFrame):
         i = self.item
         fields = [
             Field("name", "Name", default=i.name),
-            Field("stock_value", "Stock value (cost)", default=f"{i.stock_value:g}"),
-            Field("last_value", "Last price", default=f"{i.last_value:g}"),
-            Field("unit", "Unit", default=i.unit),
+            Field("stock_value", "Stock value (cost) per unit", default=f"{i.stock_value:g}"),
+            Field("last_value", "Last price per unit", default=f"{i.last_value:g}"),
+            Field(
+                "unit", "Unit  (changing it converts the whole history)", "option", normalize(i.unit) or "PCS", UNITS
+            ),
             Field("batch", "Batch", default=i.batch),
             Field("expiry_date", "Expiry", default=i.expiry_date),
             Field("gst_rate", "GST %", default=f"{i.gst_rate:g}"),
             Field("item_type", "Type", "option", i.item_type, ITEM_TYPES),
             Field("pakka_kacha", "Pakka/Kacha", "option", i.pakka_kacha, PAKKA_KACHA),
         ]
-        run_form(
+        values = run_form(
             self,
             f"Edit item #{i.id}",
             fields,
-            lambda v: self.ctx.inventory.update_item(i.id, self.ctx.username, **v),
+            lambda v: self.ctx.inventory.update_item(
+                i.id, self.ctx.username, **{k: x for k, x in v.items() if k != "unit"}
+            ),
         )
+        if values and normalize(values["unit"]) != normalize(i.unit):
+            self._change_unit(normalize(values["unit"]))
         self.load(i.id)
+
+    def _change_unit(self, new_unit: str) -> None:
+        i = self.item
+        old_unit = normalize(i.unit)
+        factor = self.ctx.inventory.conversion_factor(i.id, new_unit)
+        if factor is not None:
+            if not confirm(
+                self,
+                "Convert unit",
+                f"Change {i.name} from {old_unit} to {new_unit}?\n\n"
+                f"1 {old_unit} = {factor:g} {new_unit}. Every movement, lot and rate will be converted;\n"
+                "money amounts stay the same.",
+            ):
+                return
+        else:
+            result = run_form(
+                self,
+                f"{old_unit} → {new_unit}",
+                [Field("factor", f"How many {new_unit} is 1 {old_unit}?  (blank = relabel only, no conversion)")],
+                lambda v: None,
+                "Continue",
+            )
+            if result is None:
+                return
+            text = result["factor"].strip()
+            if not text:
+                self.ctx.inventory.update_item(i.id, self.ctx.username, unit=new_unit)
+                self.ctx.toast(f"Unit relabelled to {new_unit}; history not converted", "warning")
+                return
+            try:
+                factor = float(text)
+            except ValueError:
+                self.ctx.toast("Factor must be a number", "error")
+                return
+        try:
+            used = self.ctx.inventory.change_unit(i.id, new_unit, self.ctx.username, factor)
+        except ValidationError as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        self.ctx.toast(f"{i.name}: {old_unit} → {new_unit} (x{used:g}), history converted", "success")
+
+    def set_category(self) -> None:
+        i = self.item
+        fields = [
+            Field(
+                "category",
+                "Category (E = discontinued, kept out of stock reports)",
+                "option",
+                i.category,
+                ["A", "B", "C", "D", "E"],
+            ),
+            Field(
+                "mode", "After saving", "option", "Keep (locked)", ["Keep (locked)", "Let auto-categorise change it"]
+            ),
+        ]
+
+        def submit(v):
+            self.ctx.inventory.set_category(i.id, v["category"], self.ctx.username, locked=v["mode"].startswith("Keep"))
+
+        if run_form(self, f"Category of {i.name}", fields, submit):
+            self.ctx.toast("Category updated", "success")
+            self.load(i.id)
 
     def delete_item(self) -> None:
         if confirm(self, "Delete item", f"Delete #{self.item.id} {self.item.name} and all its movements?"):

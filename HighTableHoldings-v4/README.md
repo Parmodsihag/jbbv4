@@ -90,7 +90,13 @@ button checks it, and every write records the acting user in the audit log.
   monthly debits vs credits, receivables by age, top 10 debtors, and the krar list.
 * **Sales** – sale or receive against an account; item search auto-fills the last price;
   live amount preview; today's entries on the right. `Ctrl+Enter` = sale,
-  `Ctrl+Shift+Enter` = receive. **Loose sales:** quantities are fractional and can be
+  `Ctrl+Shift+Enter` = receive. The buttons read **Debit · sale / pay out** and
+  **Credit · receive / purchase** because each has two everyday meanings in a ledger: a debit
+  is a sale *or* cash paid out to an account in credit; a credit is a payment received *or*
+  goods bought from that account (a farmer). **Crops:** pick a crop item and the form grows
+  crop fields — Credit records a purchase lot (gross, deduction/kaat, quality), Debit a
+  FIFO-costed sale with the margin previewed before you save.
+  **Loose sales:** quantities are fractional and can be
   entered in any unit compatible with the item's stock unit — 100 G of a KG item, 2.5 QTL of
   a crop kept in KG, 500 ML of a LTR bottle. Price is always per stock unit. Set seed / crop
   / liquid items to `KG` / `LTR` when you add them so they can be split.
@@ -98,12 +104,29 @@ button checks it, and every write records the acting user in the audit log.
 * **Accounts** – create customers; searchable list with balance, days since activity and
   score; double-click for the full ledger (interest, debit, credit, running balance).
   Admins add / edit / delete entries from the ledger.
+  **Statement** (ledger header) writes a print-ready HTML statement for a date range —
+  opening balance, every entry with its interest, totals, closing balance, shop header and
+  signature lines — and opens it in the browser (print or *Save as PDF*). Shop name, address,
+  phone, GSTIN and footer note come from Settings → *Shop details*.
 * **Items** – create items with opening stock; searchable stock list; double-click for the
-  movement history. Admins edit items and movements.
+  movement history. Admins edit items and movements. **Changing an item's unit converts its
+  whole history**: same-family changes (KG ↔ QTL ↔ G, LTR ↔ ML) convert automatically;
+  unrelated units (PKT → KG) ask "how many KG is 1 PKT?" — or leave it blank to relabel
+  only. Quantities are multiplied, per-unit prices divided, money amounts untouched, across
+  stock movements, crop lots/sales and market rates.
 * **Karar** – add or reschedule a promise date, settle it; Overdue / Today / Upcoming tabs.
+  **Reminders**: *Copy reminder* puts a ready message (name, amount, promised date) on the
+  clipboard; *WhatsApp* opens a chat when the account details contain a 10-digit mobile
+  number; *Copy all shown* copies one message per row. Template in Settings.
 * **Reports** – see below. Double-click a row to jump to the ledger or item.
 * **Users** (admin) – add, reset password, change role, activate / deactivate.
-* **Settings** – light/dark theme, backup, v3 import, change password.
+* **Settings** – light/dark theme, backup (plus **automatic daily backup** on the first
+  start each day, keeping the last N), v3 import, shop details, reminder template,
+  categories, run the setup wizard again, change password.
+* **First run** – a wizard asks for shop details, new admin / employee passwords and an
+  optional v3 folder; *Skip* to do it later.
+* **Search** – `Ctrl+K` (or the header button) finds accounts, items and bills; Enter jumps
+  to the ledger, item history or bill.
 
 `Alt+D/S/A/I/K/R/B/C/U/T` switch screens.
 
@@ -127,6 +150,57 @@ One deliberate fix: v3 froze "today" at program start, so an app left running ov
 computed interest with yesterday's date. v4 always uses the current date.
 
 ---
+
+## Finance module
+
+`hth/modules/finance/` — sidebar **Finance** (`Alt+F`). Employees see the cash book and can
+add entries; administrators also get *Reports* and *Setup*.
+
+* **Money accounts** — as many as you keep: cash box, bank accounts, UPI. Each has an
+  opening balance; balances are always derived from entries. One account is the *default
+  for Sales*.
+* **Cash book** — per account, per period, with a running balance; balance tiles for every
+  account plus the total. Add **expense** (to a head), **other income**, **transfer**
+  between accounts, **capital in** and **drawings**.
+* **Customer receipts and payments come from the Sales screen**: when the entry moves money
+  rather than stock (item `CASH`, or any typed text), a *Money account* picker appears,
+  defaulting to the default account; the receipt (Credit) or payment (Debit) is written to
+  that account's cash book, linked to the ledger entry. Stock entries never touch the cash
+  book.
+* **Expense heads** (rent, salaries, electricity, transport, EMI, interest paid, repairs,
+  office, bank charges, taxes, other; income: commission, interest received, other) — add,
+  rename, deactivate.
+* **Recurring expenses** — head, account, amount, day of month; *Post due now* creates the
+  entries for every month not yet posted (idempotent).
+* **Reports** — Cash flow (money in by source, money out by kind and head, net, and each
+  account's opening → in → out → closing), **Profit & loss** (item sales margin at current
+  item cost + crop FIFO margin + other income − expenses; interest on customer balances is
+  *not* included since it is accrued, not received), Expenses by head, Monthly expenses,
+  Account balances. All exportable.
+* Dashboard gains a **Cash & bank** tile.
+
+From this version every stock movement made from the Sales screen also records its value
+(`item_transactions.value`), which is what the P&L uses; movements imported from v3 have no
+value and are excluded from item revenue.
+
+## Categories (A–E)
+
+Every customer and item carries a stored category. **A** best … **D** worst; **E** is the
+defaulter (customers) / discontinued (items) category, **assigned by hand only** — re-scoring
+never gives or removes it.
+
+* **Settings → Categories** chooses which categories feed the dashboard and reports
+  (default A–D, so multi-year defaulters stop distorting receivables, aging and top-debtor
+  lists). Every customer/item report has a *Scope* switch: *Per settings* or *All categories*.
+* **Re-score customers now** maps the v3 account score (0 = small & recent … 1 = large & long
+  outstanding) to A–D by three thresholds; nothing outstanding = A. Customers whose category
+  was set by hand are **locked** and skipped (the ledger shows a 🔒). *Keep E out of the score
+  maths* (on by default) removes defaulters from the score's min/max normalisation so they do
+  not push everyone else's score down; they get no score.
+* **Auto-categorise items** uses days since the last sale (A ≤ 30, B ≤ 90, C ≤ 180, else D —
+  configurable). Manual item categories lock the same way.
+* Set a category from the ledger / item history header (*Category* button); the Accounts and
+  Items lists show a *Cat* column and a category filter.
 
 ## Reports
 
@@ -244,7 +318,9 @@ PDF needs `pip install docx2pdf` **and** Microsoft Word on the PC; DOCX works ev
 ## Crop trading module
 
 `hth/modules/crop_trading/` — sidebar entry **Crop Trade** (`Alt+C`), available to both roles;
-deleting lots/sales needs admin.
+deleting lots/sales needs admin. **Trades are entered on the Sales screen** (pick a crop
+item); Crop Trade is where you review lots and sales, value stock, keep market rates and run
+the reports.
 
 How it fits the rest of the system:
 
@@ -257,9 +333,10 @@ How it fits the rest of the system:
 * **Every purchase is a lot** — date, farmer, gross quantity, deduction (*kaat*, v3's
   k-quantity), net, rate per unit, quality grade (A/B/C/MIX), notes.
 * **Sales are costed FIFO against open lots**: cost, margin and margin % are stored on the
-  sale, and each lot's remaining quantity goes down. The Sale form previews the FIFO cost and
-  margin before you save. Selling more than is in stock is refused unless *Allow selling
+  sale, and each lot's remaining quantity goes down. The Sales screen previews the FIFO cost
+  and margin before you save. Selling more than is in stock is refused unless *Allow selling
   short* is ticked (the uncovered part is costed at the last purchase rate and flagged).
+  Crop trades cannot carry tag 0 — settle a farmer or buyer with a separate CASH entry.
 * **Stock & rates** — per crop: quantity, lots, cost value, average cost, latest market rate,
   market value, unrealized gain, and a 7-day straight-line estimate. Enter rates by hand or
   import a CSV (`crop,date,rate`).

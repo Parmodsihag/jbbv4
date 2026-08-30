@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
 
 from hth.db.connection import Database
-from hth.domain.constants import DATE_FMT, AuditCode
+from hth.domain.constants import CATEGORIES, DATE_FMT, AuditCode
 from hth.domain.interest import parse_date
 from hth.domain.models import Item, ItemSummary, ItemTransaction
+from hth.domain.units import UnitError, convert, normalize
 from hth.services.accounts import ValidationError, _validate_date
 from hth.services.audit import AuditService
 
@@ -24,6 +26,8 @@ def _item(row) -> Item:
         gst_rate=float(row["gst_rate"]),
         item_type=row["item_type"],
         pakka_kacha=str(row["pakka_kacha"]),
+        category=row["category"] if "category" in row.keys() else "C",
+        category_locked=bool(row["category_locked"]) if "category_locked" in row.keys() else False,
     )
 
 
@@ -175,15 +179,16 @@ class InventoryService:
         tags: str = "",
         username: str = "system",
         audit: bool = True,
+        value: float = 0.0,
     ) -> int:
         date = _validate_date(date)
         received_f = _num(received, "Received")
         sale_f = _num(sale, "Sale")
         with self.db.connect():
             tx_id = self.db.execute(
-                "INSERT INTO item_transactions (item_id, date, received, sale, description, tags, created_by)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (item_id, date, received_f, sale_f, description, tags, username),
+                "INSERT INTO item_transactions (item_id, date, received, sale, description, tags, created_by, value)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (item_id, date, received_f, sale_f, description, tags, username, round(float(value or 0), 2)),
             )
             if audit:
                 self.audit.log(
@@ -241,17 +246,116 @@ class InventoryService:
     def set_last_value(self, item_id: int, value: float) -> None:
         self.db.execute("UPDATE items SET last_value = ? WHERE id = ?", (value, item_id))
 
-    def summaries(self) -> list[ItemSummary]:
+    def summaries(self, categories: Iterable[str] | None = None) -> list[ItemSummary]:
         rows = self.db.fetchall(
             "SELECT i.*, COALESCE(SUM(t.received - t.sale), 0) AS q FROM items i "
             "LEFT JOIN item_transactions t ON t.item_id = i.id GROUP BY i.id ORDER BY i.id"
         )
+        wanted = None if categories is None else set(categories)
         out = []
         for r in rows:
             item = _item(r)
+            if wanted is not None and item.category not in wanted:
+                continue
             q = float(r["q"])
             out.append(ItemSummary(item, q, round(q * item.stock_value, 2)))
         return out
+
+    def conversion_factor(self, item_id: int, new_unit: str) -> float | None:
+        """How many ``new_unit`` one current unit is, or None when the units are unrelated."""
+        item = self.get_item(item_id)
+        if item is None:
+            raise ValidationError("Item not found.")
+        try:
+            return convert(1, item.unit, new_unit)
+        except UnitError:
+            return None
+
+    def change_unit(self, item_id: int, new_unit: str, username: str, factor: float | None = None) -> float:
+        """Relabel the item in ``new_unit`` and convert its whole history.
+
+        ``factor`` = how many new units make one old unit (1 QTL = 100 KG -> factor 100 when
+        going QTL -> KG).  Derived automatically for units of the same family; required for
+        unrelated units (1 PKT = 25 KG).  Quantities are multiplied, per-unit prices divided,
+        money amounts left alone.  Returns the factor used.
+        """
+        item = self.get_item(item_id)
+        if item is None:
+            raise ValidationError("Item not found.")
+        new_unit = normalize(new_unit)
+        if not new_unit:
+            raise ValidationError("Unit is required.")
+        old_unit = normalize(item.unit)
+        if new_unit == old_unit:
+            return 1.0
+        if factor is None:
+            factor = self.conversion_factor(item_id, new_unit)
+            if factor is None:
+                raise ValidationError(
+                    f"{old_unit} and {new_unit} are not related - say how many {new_unit} one {old_unit} is."
+                )
+        factor = float(factor)
+        if factor <= 0:
+            raise ValidationError("Factor must be greater than zero.")
+        q, p = f"ROUND({{}} * {factor!r}, 4)", f"ROUND({{}} / {factor!r}, 4)"
+        with self.db.connect():
+            self.db.execute(
+                f"UPDATE items SET unit = ?, stock_value = {p.format('stock_value')},"
+                f" last_value = {p.format('last_value')} WHERE id = ?",
+                (new_unit, item_id),
+            )
+            self.db.execute(
+                f"UPDATE item_transactions SET received = {q.format('received')}, sale = {q.format('sale')}"
+                " WHERE item_id = ?",
+                (item_id,),
+            )
+            tables = {r[0] for r in self.db.fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            if "crop_lots" in tables:
+                self.db.execute(
+                    f"UPDATE crop_lots SET gross_qty = {q.format('gross_qty')},"
+                    f" deduction_qty = {q.format('deduction_qty')},"
+                    f" qty = {q.format('qty')}, remaining_qty = {q.format('remaining_qty')}, rate = {p.format('rate')}"
+                    " WHERE item_id = ?",
+                    (item_id,),
+                )
+                self.db.execute(
+                    f"UPDATE crop_sales SET qty = {q.format('qty')}, short_qty = {q.format('short_qty')},"
+                    f" rate = {p.format('rate')} WHERE item_id = ?",
+                    (item_id,),
+                )
+                self.db.execute(
+                    f"UPDATE crop_sale_lots SET qty = {q.format('qty')}, cost_rate = {p.format('cost_rate')}"
+                    " WHERE sale_id IN (SELECT id FROM crop_sales WHERE item_id = ?)",
+                    (item_id,),
+                )
+                self.db.execute(f"UPDATE crop_rates SET rate = {p.format('rate')} WHERE item_id = ?", (item_id,))
+            self.audit.log(
+                AuditCode.MODIFY,
+                f"item {item_id} unit {old_unit} -> {new_unit} (1 {old_unit} = {factor:g} {new_unit}),"
+                " history converted",
+                username,
+            )
+        return factor
+
+    def set_category(self, item_id: int, category: str, username: str, locked: bool = True) -> None:
+        category = (category or "").strip().upper()
+        if category not in CATEGORIES:
+            raise ValidationError(f"Category must be one of {', '.join(CATEGORIES)}.")
+        with self.db.connect():
+            self.db.execute(
+                "UPDATE items SET category = ?, category_locked = ? WHERE id = ?",
+                (category, 1 if locked else 0, item_id),
+            )
+            self.audit.log(
+                AuditCode.MODIFY, f"item {item_id} category -> {category}{' (locked)' if locked else ''}", username
+            )
+
+    def last_sale_dates(self) -> dict[int, str | None]:
+        rows = self.db.fetchall(
+            "SELECT i.id, MAX(CASE WHEN t.sale > 0 THEN t.date END) AS last_sale FROM items i "
+            "LEFT JOIN item_transactions t ON t.item_id = i.id GROUP BY i.id"
+        )
+        return {r["id"]: r["last_sale"] for r in rows}
 
     def total_stock_value(self) -> float:
         return round(sum(s.total_value for s in self.summaries()), 2)
