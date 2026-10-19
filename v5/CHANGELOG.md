@@ -1,5 +1,35 @@
 # Changelog
 
+## 5.1.0 — 2026-10-20
+
+### Hindi (हिन्दी)
+- **Settings → Appearance → Language: English / हिन्दी**, switched live (every screen is
+  rebuilt). Shop-wide and remembered; Windows uses the Nirmala UI font for Devanagari.
+- The whole interface is translated from one English → Hindi phrase table
+  (`hth/i18n/hi.py`, ~1,100 entries in shop vocabulary: नामे / जमा, शेष, लेनदारी / देनदारी,
+  करार, ब्याज). A hook in customtkinter translates labels, buttons, tabs, dropdowns,
+  placeholders and window titles; values the code compares stay English, so logic is
+  unchanged. Composite texts (`12 entries · debit 1,200.00`) translate piece by piece;
+  dates show Hindi month and day names.
+- **Hindi copies of names**: every customer (name, details) and item gets a stored Hindi
+  copy, made offline by `hth/i18n/translit.py` - a word list of North-Indian names,
+  Haryana gotras, places, agri brands, crops and units, compound-name splitting
+  (AMARSINGH → अमरसिंह) and phonetic rules for the rest. Correct any name in the edit
+  dialogs or **Settings → Hindi names → Review / correct**; a corrected name is never
+  regenerated. English stays the record of truth for ledgers, bills, search and exports
+  of the data itself.
+- In Hindi, tables, pickers, ledger headers, the account snapshot, statements, counter
+  slips and Excel exports show the Hindi names; search boxes still match English typing.
+  Reminders and WhatsApp balance messages have their own Hindi template.
+- Charts keep Latin text: matplotlib cannot shape Devanagari (matras would be misplaced).
+- Schema migration 6: `name_hi`, `details_hi`, `hi_manual` on customers, `name_hi`,
+  `hi_manual` on items (backed up first, as every migration).
+
+### Fixed
+- The Sales screen added another Ctrl+Z binding on every sign-in; the old ones pointed at
+  destroyed screens.
+- Clearing a filter box when opening a report or ledger hid its placeholder text.
+
 ## 5.0.0 — 2026-10-19
 
 Same business rules and numbers as v4: on a copy of the shop's database every customer

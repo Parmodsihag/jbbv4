@@ -11,6 +11,15 @@ FONT_FAMILY = (
     "Segoe UI" if sys.platform.startswith("win") else ("Helvetica Neue" if sys.platform == "darwin" else "DejaVu Sans")
 )
 MONO_FAMILY = "Consolas" if sys.platform.startswith("win") else "Menlo"
+LATIN_FAMILY = FONT_FAMILY
+
+
+def set_language_font(hindi: bool) -> None:
+    """Nirmala UI draws Devanagari (and Latin) cleanly on Windows; other systems fall back
+    to whatever font has the glyphs."""
+    global FONT_FAMILY
+    FONT_FAMILY = "Nirmala UI" if hindi and sys.platform.startswith("win") else LATIN_FAMILY
+
 
 # (light, dark)
 PALETTE: dict[str, tuple[str, str]] = {

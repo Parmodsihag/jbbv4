@@ -399,15 +399,21 @@ class ItemHistoryPanel(ctk.CTkFrame):
             Field("gst_rate", "GST %", default=f"{i.gst_rate:g}"),
             Field("item_type", "Type", "option", i.item_type, ITEM_TYPES),
             Field("pakka_kacha", "Pakka/Kacha", "option", i.pakka_kacha, PAKKA_KACHA),
+            Field("name_hi", "Name in Hindi  (blank = automatic)", default=i.name_hi if i.hi_manual else ""),
         ]
-        values = run_form(
-            self,
-            f"Edit item #{i.id}",
-            fields,
-            lambda v: self.ctx.inventory.update_item(
-                i.id, self.ctx.username, **{k: x for k, x in v.items() if k != "unit"}
-            ),
-        )
+
+        def submit(v):
+            self.ctx.inventory.update_item(
+                i.id, self.ctx.username, **{k: x for k, x in v.items() if k not in ("unit", "name_hi")}
+            )
+            if v["name_hi"]:
+                self.ctx.hindi.set_item(i.id, v["name_hi"], self.ctx.username)
+            elif i.hi_manual:
+                self.ctx.hindi.reset("item", i.id, self.ctx.username)
+
+        values = run_form(self, f"Edit item #{i.id}", fields, submit)
+        if values:
+            self.ctx.app.refresh_names()
         if values and normalize(values["unit"]) != normalize(i.unit):
             self._change_unit(normalize(values["unit"]))
         self.load(i.id)

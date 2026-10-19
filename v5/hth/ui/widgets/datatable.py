@@ -9,6 +9,7 @@ from typing import Any
 
 import customtkinter as ctk
 
+from hth.i18n import tr, tr_cell
 from hth.ui import theme
 from hth.ui.format import money, qty
 
@@ -19,7 +20,7 @@ class Column:
     title: str
     width: int = 120
     anchor: str = "w"
-    kind: str = "text"  # text | money | qty | int
+    kind: str = "text"  # text | money | qty | int | raw (text, never translated)
     stretch: bool = False
 
 
@@ -32,7 +33,9 @@ def _fmt(value: Any, kind: str) -> str:
         return qty(value) if value != "" else ""
     if kind == "int":
         return "" if value == "" else str(int(float(value)))
-    return str(value)
+    if kind == "raw":  # shown exactly as stored, never translated
+        return str(value)
+    return tr_cell(value)
 
 
 def _sort_key(value: Any, kind: str):
@@ -75,7 +78,7 @@ class DataTable(ctk.CTkFrame):
             height=height or 6,  # requested rows only - expand=True grows it to fit
         )
         for idx, col in enumerate(self.columns):
-            self.tree.heading(col.key, text=col.title, anchor=col.anchor, command=lambda i=idx: self.sort_by(i))
+            self.tree.heading(col.key, text=tr(col.title), anchor=col.anchor, command=lambda i=idx: self.sort_by(i))
             width = round(col.width * theme.text_scale())  # columns grow with Settings -> Text size
             self.tree.column(col.key, width=width, minwidth=40, anchor=col.anchor, stretch=col.stretch)
         vsb = ctk.CTkScrollbar(self, command=self.tree.yview)
@@ -136,7 +139,9 @@ class DataTable(ctk.CTkFrame):
             return list(rows)
         out = []
         for r in rows:
-            text = " ".join(_fmt(v, c.kind) for v, c in zip(r, self.columns, strict=False)).lower()
+            shown = " ".join(_fmt(v, c.kind) for v, c in zip(r, self.columns, strict=False))
+            raw = " ".join("" if v is None else str(v) for v in r[: len(self.columns)])
+            text = f"{shown} {raw}".lower()  # Hindi display and English data both match
             if all(w in text for w in words):
                 out.append(r)
         return out
@@ -228,13 +233,20 @@ class DataTable(ctk.CTkFrame):
             marker = ""
             if idx == self._sort_col:
                 marker = " ▼" if self._sort_desc else " ▲"
-            self.tree.heading(col.key, text=col.title + marker)
+            self.tree.heading(col.key, text=tr(col.title) + marker)
 
     def export_columns(self) -> list[str]:
-        return [c.title for c in self.columns]
+        return [tr(c.title) for c in self.columns]
 
     def export_rows(self) -> list[list[Any]]:
-        return [list(r[: len(self.columns)]) for r in self._rows]
+        """Numbers stay numbers; text cells as shown (Hindi names when Hindi is on)."""
+        return [
+            [
+                tr_cell(v) if isinstance(v, str) and c.kind == "text" else v
+                for v, c in zip(r, self.columns, strict=False)
+            ]
+            for r in self._rows
+        ]
 
     # Events --------------------------------------------------------------------------
     def _dbl(self, _event) -> None:

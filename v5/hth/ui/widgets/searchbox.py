@@ -8,6 +8,7 @@ from typing import Any
 
 import customtkinter as ctk
 
+from hth.i18n import tr_cell
 from hth.ui import theme
 
 Suggestion = tuple[Any, str]
@@ -80,10 +81,17 @@ class SearchBox(ctk.CTkFrame):
 
     # Data ---------------------------------------------------------------------------
     def refresh(self) -> None:
+        """Labels are shown in the current language (Hindi names when Hindi is on); typing
+        matches the English label and the shown one, so "ram" still finds राम."""
         try:
-            self._data = list(self._fetch())
+            raw = list(self._fetch())
         except Exception:  # noqa: BLE001 - never let a data error break typing
-            self._data = []
+            raw = []
+        self._data = [(key, tr_cell(label)) for key, label in raw]
+        self._haystack = [
+            (key, label if shown == label else f"{label} {shown}")
+            for (key, label), (_k, shown) in zip(raw, self._data, strict=True)
+        ]
 
     def get_key(self) -> Any:
         """Key of the chosen suggestion, or None when the text is not an exact label."""
@@ -122,7 +130,8 @@ class SearchBox(ctk.CTkFrame):
         if not term:
             self.hide()
             return
-        self._filtered = rank_matches(term, self._data)[:200]
+        shown = dict(self._data)
+        self._filtered = [(k, shown[k]) for k, _hay in rank_matches(term, getattr(self, "_haystack", self._data))][:200]
         if self._filtered:
             self._show()
         else:

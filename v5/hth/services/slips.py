@@ -12,11 +12,14 @@ from pathlib import Path
 
 from hth.db.connection import Database
 from hth.domain import numbers
+from hth.i18n import name as hi_name
+from hth.i18n import tr as t
+from hth.i18n import tr_cell
 from hth.services.accounts import AccountsService, ValidationError
 from hth.services.company import CompanyService
 
 _CSS = """
-body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:12px}
+body{font-family:'Segoe UI','Nirmala UI',Mangal,Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:12px}
 .slip{max-width:300px;margin:0 auto}
 h1{font-size:16px;margin:0;text-align:center;letter-spacing:.5px}
 .c{text-align:center}.m{color:#555}.r{text-align:right}
@@ -45,16 +48,17 @@ class SlipService:
         now = now or dt.datetime.now()
         shop = self.company.profile()
         kind = results[0].kind
-        title = "SALE" if kind == "P" else "RECEIPT"
+        title = t("SALE" if kind == "P" else "RECEIPT")
         lines = "".join(
-            f"<tr><td>{escape(r.description or '')}</td><td class='r'>{numbers.amount(r.amount)}</td></tr>"
+            f"<tr><td>{escape(tr_cell(r.description or ''))}</td><td class='r'>{numbers.amount(r.amount)}</td></tr>"
             for r in results
         )
         total = round(sum(r.amount for r in results), 2)
         balance = self.accounts.get_balance(customer_id)
-        state = "due" if balance > 0 else ("in your favour" if balance < 0 else "settled")
-        ref = min((t for r in results for t in r.transaction_ids), default=0)
+        state = t("due" if balance > 0 else ("in your favour" if balance < 0 else "settled"))
+        ref = min((tx for r in results for tx in r.transaction_ids), default=0)
         gstin = f"<div class='c m'>GSTIN {escape(shop.gstin)}</div>" if shop.gstin else ""
+        details = escape(hi_name(c.other_details))
         return f"""<!doctype html><html><head><meta charset="utf-8"><title>{title} {ref}</title>
 <style>{_CSS}</style></head><body><div class="slip">
 <h1>{escape(shop.name)}</h1>
@@ -62,18 +66,18 @@ class SlipService:
 <div class="c m">{escape(shop.phone)}</div>{gstin}
 <div class="rule"></div>
 <table><tr><td><b>{title}</b> #{ref}</td><td class="r">{now:%d-%m-%Y %H:%M}</td></tr>
-<tr><td colspan="2">{escape(c.name)} <span class="m">#{c.id} {escape(c.other_details)}</span></td></tr></table>
+<tr><td colspan="2">{escape(hi_name(c.name))} <span class="m">#{c.id} {details}</span></td></tr></table>
 <div class="rule"></div>
-<table>{lines}<tr class="tot"><td>Total</td><td class="r">{numbers.amount(total)}</td></tr></table>
+<table>{lines}<tr class="tot"><td>{t("Total")}</td><td class="r">{numbers.amount(total)}</td></tr></table>
 <div class="rule"></div>
-<table><tr><td>Account balance</td><td class="r">{numbers.amount(abs(balance))} {state}</td></tr></table>
-<div class="c m" style="margin-top:8px">Thank you{(" · " + escape(username)) if username else ""}</div>
-<button class="noprint" onclick="window.print()">Print</button>
+<table><tr><td>{t("Account balance")}</td><td class="r">{numbers.amount(abs(balance))} {state}</td></tr></table>
+<div class="c m" style="margin-top:8px">{t("Thank you")}{(" · " + escape(username)) if username else ""}</div>
+<button class="noprint" onclick="window.print()">{t("Print")}</button>
 </div></body></html>"""
 
     def write(self, results: list, customer_id: int, out_dir: Path, username: str = "") -> Path:
         out_dir.mkdir(parents=True, exist_ok=True)
-        ref = min((t for r in results for t in r.transaction_ids), default=0)
+        ref = min((tx for r in results for tx in r.transaction_ids), default=0)
         path = out_dir / f"slip_{ref}_{dt.datetime.now():%Y%m%d_%H%M%S}.html"
         path.write_text(self.html(results, customer_id, username), encoding="utf-8")
         return path

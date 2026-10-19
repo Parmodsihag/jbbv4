@@ -36,6 +36,25 @@ class SettingsView(BaseView):
         can_edit = self.ctx.can(Permission.MANAGE_SETTINGS)
         row = ctk.CTkFrame(look, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=(4, 6))
+        ctk.CTkLabel(row, text="Language", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        self.language = ctk.CTkSegmentedButton(
+            row,
+            values=["English", "हिन्दी"],
+            command=self._set_language,
+            font=theme.font(13),
+            state="normal" if can_edit else "disabled",
+        )
+        self.language.set("हिन्दी" if prefs.language() == "hi" else "English")
+        self.language.pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text="   screens, reports, statements and names (Hindi copies, editable below)",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
+        ).pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=6)
         ctk.CTkLabel(row, text="Theme", font=theme.font(13), width=120, anchor="w").pack(side="left")
         self.mode = ctk.CTkSegmentedButton(
             row, values=["Light", "Dark", "System"], command=self._set_mode, font=theme.font(13)
@@ -168,6 +187,7 @@ class SettingsView(BaseView):
             anchor="w",
         ).pack(fill="x", pady=(8, 0))
 
+        self._build_hindi(scroll)
         self._build_company(scroll)
         self._build_reminders(scroll)
         self._build_categories(scroll)
@@ -387,6 +407,64 @@ class SettingsView(BaseView):
 
     def _set_mode(self, value: str) -> None:
         self.ctx.app.apply_theme(value.lower())
+
+    def _set_language(self, value: str) -> None:
+        lang = "hi" if value == "हिन्दी" else "en"
+        if lang == self.ctx.prefs.language():
+            return
+        self.ctx.audit.log("09", f"language -> {lang}", self.ctx.username)
+        # after the button callback returns: the rebuild destroys this screen
+        self.ctx.app.after(20, lambda: self.ctx.app.apply_language(lang))
+
+    # Hindi names -----------------------------------------------------------------------
+    def _build_hindi(self, scroll) -> None:
+        card = Card(scroll, "Hindi names (हिन्दी नाम)")
+        card.pack(fill="x", padx=4, pady=4)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(4, 16))
+        rows = self.ctx.hindi.rows()
+        manual = sum(1 for r in rows if r.manual)
+        self.hindi_status = ctk.CTkLabel(
+            body,
+            text=(
+                f"Every customer and item keeps a Hindi copy of its name, made automatically from the English "
+                f"spelling. {len(rows)} names · {manual} corrected by hand (never overwritten). English stays "
+                "the original for ledgers, bills and search."
+            ),
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+            anchor="w",
+            justify="left",
+            wraplength=900,
+        )
+        self.hindi_status.pack(fill="x")
+        actions = ctk.CTkFrame(body, fg_color="transparent")
+        actions.pack(fill="x", pady=(8, 0))
+        secondary_button(actions, "Review / correct names…", self.review_hindi, width=190).pack(side="left")
+        if self.ctx.can(Permission.MANAGE_SETTINGS):
+            secondary_button(actions, "Fill missing", self.fill_hindi, width=120).pack(side="left", padx=8)
+            secondary_button(actions, "Regenerate automatic ones", self.regenerate_hindi, width=200).pack(side="left")
+
+    def review_hindi(self) -> None:
+        from hth.ui.widgets.hindi_review import HindiReview
+
+        HindiReview(self, self.ctx)
+
+    def fill_hindi(self) -> None:
+        c, i = self.ctx.hindi.fill_missing(self.ctx.username)
+        self.ctx.app.refresh_names()
+        self.ctx.toast(f"Hindi names added: {c} customers, {i} items", "success")
+
+    def regenerate_hindi(self) -> None:
+        if not confirm(
+            self,
+            "Regenerate Hindi names",
+            "Make every automatic Hindi name again from its English spelling?\nNames corrected by hand are kept.",
+        ):
+            return
+        c, i = self.ctx.hindi.fill_missing(self.ctx.username, regenerate=True)
+        self.ctx.app.refresh_names()
+        self.ctx.toast(f"Hindi names regenerated: {c} customers, {i} items", "success")
 
     def _set_text_size(self, value: str) -> None:
         self.ctx.app.apply_text_scale(int(value.rstrip("%")) / 100)

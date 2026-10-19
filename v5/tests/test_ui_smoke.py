@@ -466,3 +466,46 @@ def test_v5_employee_cannot_open_admin_reports_by_link(app):
     app.navigate("reports", report="collections")
     _pump(app, 10)
     assert rv.spec.key == "collections"
+
+
+def test_v5_hindi_switch(app):
+    from hth import i18n
+    from hth.ui.widgets.searchbox import rank_matches
+
+    ctx = app.ctx
+    c = ctx.accounts.add_customer("RAMESH SIHAG", "ROHTAK", 500, "2026-01-01")
+    urea = ctx.inventory.add_item("UREA", 260, 300, unit="BAG", opening_quantity=10)
+    _login(app, "admin", "admin")
+    try:
+        app.apply_language("hi")
+        _pump(app)
+        assert ctx.prefs.language() == "hi"
+        assert app._nav_buttons["sales"].text.cget("text") == "बिक्री"
+        assert app._active == "settings" and app.header_title.cget("text") == "सेटिंग्स"
+        for key in CORE_KEYS + ["bills", "crops", "finance"]:
+            app.navigate(key)
+            _pump(app, 30)
+            assert app._active == key
+        app.navigate("sales")
+        _pump(app)
+        sales = app._views["sales"]
+        sales.account.set(c.id)
+        assert "रमेश सिहाग" in sales.account.get_text() and sales.account.get_key() == c.id
+        assert rank_matches("ramesh", sales.account._haystack)[0][0] == c.id  # English typing still finds it
+        sales._show_balance(c.id)
+        sales.item.set(urea.id)
+        sales._on_item(urea.id)
+        assert "यूरिया" in sales.item.get_text()
+        sales.quantity.set("2")
+        sales.submit("P")
+        _pump(app)
+        assert "UREA" in ctx.accounts.get_transactions(c.id)[-1].description  # the ledger stays English
+        app.navigate("customers", customer_id=c.id)
+        _pump(app)
+        assert "रमेश सिहाग" in app._views["customers"].ledger_panel.name_label.cget("text")
+        app.apply_language("en")
+        _pump(app)
+        assert app._nav_buttons["sales"].text.cget("text") == "Sales"
+    finally:
+        i18n.set_language("en")
+        i18n.set_names({}, {})

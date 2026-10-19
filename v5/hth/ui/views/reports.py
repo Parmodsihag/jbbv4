@@ -829,7 +829,8 @@ class ReportsView(BaseView):
 
         if self.table:
             self.table.destroy()
-        self.row_filter.delete(0, "end")
+        if self.row_filter.get():  # deleting an empty box would hide its placeholder
+            self.row_filter.delete(0, "end")
         self.hint.pack_forget()
         self.table = DataTable(self.table_host, spec.columns, row_tags=spec.row_tags, on_double_click=self._open_row)
         self.table.pack(fill="both", expand=True)

@@ -236,14 +236,17 @@ class LedgerPanel(ctk.CTkFrame):
         if self.ctx.can(Permission.MANAGE_KRAR):
             secondary_button(tools, "Promise…", self.promise, width=90).pack(side="left", padx=6)
         secondary_button(tools, "↻", lambda: self.load(self.customer.id), width=40).pack(side="left", padx=6)
-        if self.ctx.can(Permission.EDIT_RECORDS):
-            secondary_button(tools, "Add entry", self.add_entry, width=100).pack(side="left", padx=(12, 6))
-            secondary_button(tools, "Edit entry", self.edit_entry, width=100).pack(side="left", padx=6)
-            secondary_button(tools, "Edit customer", self.edit_customer, width=120).pack(side="left", padx=6)
-            secondary_button(tools, "Category", self.set_category, width=90).pack(side="left", padx=6)
-        if self.ctx.can(Permission.DELETE_RECORDS):
-            danger_button(tools, "Delete entry", self.delete_entry, width=100).pack(side="right", padx=(6, 0))
-            danger_button(tools, "Delete customer", self.delete_customer, width=130).pack(side="right")
+        if self.ctx.can(Permission.EDIT_RECORDS) or self.ctx.can(Permission.DELETE_RECORDS):
+            admin = ctk.CTkFrame(self, fg_color="transparent")  # own row: labels are wider in Hindi
+            admin.pack(fill="x", padx=12, pady=(0, 4))
+            if self.ctx.can(Permission.EDIT_RECORDS):
+                secondary_button(admin, "Add entry", self.add_entry, width=100).pack(side="left", padx=(0, 6))
+                secondary_button(admin, "Edit entry", self.edit_entry, width=100).pack(side="left", padx=6)
+                secondary_button(admin, "Edit customer", self.edit_customer, width=120).pack(side="left", padx=6)
+                secondary_button(admin, "Category", self.set_category, width=90).pack(side="left", padx=6)
+            if self.ctx.can(Permission.DELETE_RECORDS):
+                danger_button(admin, "Delete entry", self.delete_entry, width=100).pack(side="right", padx=(6, 0))
+                danger_button(admin, "Delete customer", self.delete_customer, width=130).pack(side="right")
 
         view_bar = ctk.CTkFrame(self, fg_color="transparent")
         view_bar.pack(fill="x", padx=12, pady=(2, 0))
@@ -282,7 +285,8 @@ class LedgerPanel(ctk.CTkFrame):
     def load(self, customer_id: int) -> None:
         if self.customer is None or self.customer.id != customer_id:
             self.period.set("All")
-            self.text_filter.delete(0, "end")
+            if self.text_filter.get():  # deleting an empty box would hide its placeholder
+                self.text_filter.delete(0, "end")
         self.customer = self.ctx.accounts.get_customer(customer_id)
         if self.customer is None:
             self.ctx.toast("Customer not found", "error")
@@ -480,13 +484,19 @@ class LedgerPanel(ctk.CTkFrame):
         fields = [
             Field("name", "Name", default=c.name),
             Field("details", "Other details", default=c.other_details),
+            Field("name_hi", "Name in Hindi  (blank = automatic)", default=c.name_hi if c.hi_manual else ""),
+            Field("details_hi", "Details in Hindi", default=c.details_hi if c.hi_manual else ""),
         ]
-        run_form(
-            self,
-            f"Edit customer #{c.id}",
-            fields,
-            lambda v: self.ctx.accounts.update_customer(c.id, v["name"], v["details"], self.ctx.username),
-        )
+
+        def submit(v):
+            self.ctx.accounts.update_customer(c.id, v["name"], v["details"], self.ctx.username)
+            if v["name_hi"]:
+                self.ctx.hindi.set_customer(c.id, v["name_hi"], v["details_hi"], self.ctx.username)
+            elif c.hi_manual:
+                self.ctx.hindi.reset("customer", c.id, self.ctx.username)
+
+        if run_form(self, f"Edit customer #{c.id}", fields, submit):
+            self.ctx.app.refresh_names()
         self.load(c.id)
 
     def set_category(self) -> None:

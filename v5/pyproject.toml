@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "high-table-holdings"
-version = "5.0.0"
+version = "5.1.0"
 description = "Accounting and inventory management for Jaat Beaj Bhander"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,3 +43,5 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "hth/services/statements.py" = ["E501"]  # HTML template literal
+"hth/i18n/hi.py" = ["E501"]  # phrase table: one English / Hindi pair per entry
+"hth/i18n/hindi_words.py" = ["E501"]

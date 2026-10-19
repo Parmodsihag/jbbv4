@@ -9,11 +9,13 @@ import time
 
 import customtkinter as ctk
 
-from hth import __app_name__, __company__, __version__
+from hth import __app_name__, __company__, __version__, i18n
 from hth.config import Settings
 from hth.db.connection import Database
 from hth.domain.models import User
+from hth.i18n import widgets as i18n_widgets
 from hth.modules import discover
+from hth.services.hindi import HindiNamesService
 from hth.services.permissions import ROLES, Permission
 from hth.services.preferences import Preferences
 from hth.services.search import SearchService
@@ -70,6 +72,9 @@ class App(ctk.CTk):
     def __init__(self, db: Database, settings: Settings):
         self.prefs = Preferences(db)
         self.prefs.apply_number_style()
+        i18n.set_language(self.prefs.language())
+        theme.set_language_font(i18n.is_hindi())
+        i18n_widgets.install()  # before the first widget: labels translate themselves
         self.appearance = self.prefs.theme()
         theme.init_theme(self.appearance)
         theme.set_text_scale(self.prefs.text_scale())
@@ -145,7 +150,7 @@ class App(ctk.CTk):
     def _on_day_change(self) -> None:
         log.info("date changed to %s", self._today)
         if hasattr(self, "date_label"):
-            self.date_label.configure(text=self._today.strftime("%A, %d %B %Y"))
+            self.date_label.configure(text=i18n.date_text(self._today, "%A, %d %B %Y"))
         for view in self._views.values():
             try:
                 view.on_day_change()
@@ -196,6 +201,7 @@ class App(ctk.CTk):
         if self._login is not None:
             self._login.destroy()
             self._login = None
+        self.refresh_names()
         self._build_shell()
         self._last_input = time.monotonic()
         self.navigate("dashboard")
@@ -408,7 +414,7 @@ class App(ctk.CTk):
         ).pack(side="right", padx=8)
         self.date_label = ctk.CTkLabel(
             header,
-            text=self._today.strftime("%A, %d %B %Y"),
+            text=i18n.date_text(self._today, "%A, %d %B %Y"),
             font=theme.font(13),
             text_color=theme.color("muted"),
         )
@@ -461,7 +467,7 @@ class App(ctk.CTk):
             text = "No backup yet"
         else:
             when = dt.datetime.fromtimestamp(last.stat().st_mtime)
-            text = f"Last backup {when:%d %b %H:%M}"
+            text = f"Last backup {i18n.date_text(when, '%d %b %H:%M')}"
         self.backup_label.configure(text=text)
 
     def show_shortcuts(self) -> None:
@@ -504,6 +510,7 @@ class App(ctk.CTk):
         if entry is None or not self.ctx.can(entry[3]) or self._shell is None or self.is_locked:
             return
         _key, label, _s, _p, cls = entry
+        self.refresh_names()
         view = self._views.get(key)
         if view is None:
             view = cls(self.content, self.ctx)
@@ -535,6 +542,33 @@ class App(ctk.CTk):
     # Theme -------------------------------------------------------------------------------
     def _theme_icon(self) -> str:
         return icons.icon("moon") if ctk.get_appearance_mode().lower() == "dark" else icons.icon("sun")
+
+    # Language ----------------------------------------------------------------------------
+    def refresh_names(self) -> None:
+        """Hindi copies of customer / item names for the screens (cheap: one query each)."""
+        if i18n.is_hindi():
+            try:
+                i18n.set_names(*HindiNamesService(self.ctx.db).lookup())
+            except Exception:  # noqa: BLE001 - names are a nicety, never block a screen
+                log.exception("could not load Hindi names")
+
+    def apply_language(self, lang: str) -> None:
+        """Switch English / Hindi now: every screen is rebuilt in the new language."""
+        self.prefs.set_language(lang)
+        i18n.set_language(lang)
+        theme.set_language_font(i18n.is_hindi())
+        theme.style_treeview()
+        self.refresh_names()
+        self.title(f"{__app_name__} {__version__}")
+        if not self.is_signed_in or self.is_locked:
+            return
+        self._shell.destroy()
+        self._shell = None
+        self._views.clear()
+        self._nav_buttons.clear()
+        self._active = None
+        self._build_shell()
+        self.navigate("settings")
 
     def apply_text_scale(self, scale: float) -> None:
         self.prefs.set_text_scale(scale)

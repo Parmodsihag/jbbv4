@@ -213,7 +213,8 @@ class SalesView(BaseView):
         top = self.winfo_toplevel()
         top.bind("<Control-Return>", lambda e: self._shortcut("P"))
         top.bind("<Control-Shift-Return>", lambda e: self._shortcut("M"))
-        top.bind("<Control-z>", lambda e: self.undo_last() if self.winfo_ismapped() else None, add="+")
+        # replace, not add: a rebuilt Sales screen must not leave callbacks to its old self
+        top.bind("<Control-z>", lambda e: self.undo_last() if self.winfo_exists() and self.winfo_ismapped() else None)
 
         side = ctk.CTkFrame(self, fg_color="transparent")
         side.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=4)
@@ -436,6 +437,13 @@ class SalesView(BaseView):
             text="Credit = bought from this farmer (adds a lot).   Debit = sold to this buyer (costed FIFO)."
         )
 
+    def _item_name(self) -> str:
+        """What the ledger records: the stock item's English label even when the picker shows
+        Hindi, otherwise the typed text."""
+        if self._item is not None and self.item.get_key() == self._item.id:
+            return self._item.display
+        return self.item.get_text()
+
     def _shortcut(self, kind: str) -> None:
         if self.winfo_ismapped():
             self.submit(kind)
@@ -443,7 +451,7 @@ class SalesView(BaseView):
     # Lines -----------------------------------------------------------------------------
     def _current_line(self, required: bool) -> tuple[SaleLine, float] | None:
         """The line in the form, or None when the form is empty (``required`` = complain)."""
-        item_name = self.item.get_text()
+        item_name = self._item_name()
         if not (item_name or self.quantity.get() or self.price.get()):
             if required:
                 raise ValidationError("Enter an item, quantity and price.")
@@ -547,7 +555,7 @@ class SalesView(BaseView):
                 self._after_post(results, msg, customer_id)
                 return
             item_id = self.item.get_key()
-            item_name = self.item.get_text()
+            item_name = self._item_name()
             if not (self.quantity.get() and self.price.get()):
                 raise ValidationError("Quantity and price are required.")
             result = self.ctx.sales.record(

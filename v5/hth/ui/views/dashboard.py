@@ -6,6 +6,7 @@ import datetime as dt
 
 import customtkinter as ctk
 
+from hth import i18n
 from hth.services.insights import Insight, InsightsService
 from hth.services.permissions import Permission
 from hth.ui import theme
@@ -147,7 +148,7 @@ class DashboardView(BaseView):
             krar_rows = []
             for bucket, label in (("past", "Overdue"), ("today", "Today"), ("future", "Upcoming")):
                 for e in rep.krar.entries(bucket):
-                    promised = dt.date.fromisoformat(e.last_date).strftime("%d %b %y") if e.last_date else ""
+                    promised = i18n.date_text(dt.date.fromisoformat(e.last_date), "%d %b %y") if e.last_date else ""
                     krar_rows.append((e.customer_name, promised, balances.get(e.customer_id, 0), label, e.customer_id))
             return {
                 "kpis": rep.kpis(summaries),
