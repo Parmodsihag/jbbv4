@@ -1,10 +1,15 @@
-# High Table Holdings v4
+# High Table Holdings v5
 
 Accounting and inventory management for **Jaat Beaj Bhander** — customer ledgers with
 interest, stock, *krar* (promised payments), reports and dashboards.
 
-v4 is a ground-up rewrite of v3.7.1: **same business rules, same numbers**, new UI, one
-database, users with access levels, tests, and a clean layered codebase.
+v4 was a ground-up rewrite of v3.7.1 (**same business rules, same numbers**). v5 builds on
+v4 with the same rules and numbers again — every balance and interest figure is
+byte-for-byte identical to v4 on the shop's data — and makes it faster (the dashboard and
+account list load ~40× faster), safer (screen lock, login lockout, backup restore, atomic
+migrations, undo) and more useful at the counter (multi-item entries, account snapshot,
+printable slip, Indian number format, seven new reports, a *Needs attention* panel).
+See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ---
 
@@ -55,12 +60,23 @@ One SQLite file, `hth.db`, plus `exports/`, `backups/` and `logs/` next to it:
 
 | platform | default folder                                      |
 |----------|-----------------------------------------------------|
-| Windows  | `C:\JBB\v4`                                          |
+| Windows  | `C:\JBB\v5`                                          |
 | macOS    | `~/Library/Application Support/HighTableHoldings`   |
 | Linux    | `~/.local/share/HighTableHoldings`                  |
 
 Set the environment variable `HTH_DATA_DIR` to use a different folder (e.g. a synced drive).
-**Settings → Backup now** writes a consistent copy to `backups/`.
+**Settings → Backup now** writes a consistent copy to `backups/`; **Restore a backup…**
+brings one back (the current data is saved first as `hth_before_restore_<time>.db`).
+
+### Moving from v4
+
+v5 keeps its own folder so v4's data is never changed. On the **first start** in the default
+Windows folder, v5 copies `C:\JBB\v4\hth.db` into `C:\JBB\v5` (opened read-only, copied
+with SQLite's backup API, so it is consistent even if v4 is open) and says so once after
+sign-in. From then on the two are separate: entries made in v5 are not seen by v4. To copy
+again, close v5, delete or rename `C:\JBB\v5\hth.db`, and start v5. With `HTH_DATA_DIR`
+set nothing is copied. Before any schema upgrade of an existing database v5 also writes
+`backups/hth_pre_migration_v<N>_<time>.db`.
 
 ---
 
@@ -70,6 +86,7 @@ Set the environment variable `HTH_DATA_DIR` to use a different folder (e.g. a sy
 |----------------------------------------------|:-----:|:--------:|
 | Dashboard                                    |  ✓    |   ✓      |
 | Record sales / receipts                      |  ✓    |   ✓      |
+| Undo your own last entry (15 minutes)        |  ✓    |   ✓      |
 | Add accounts and items                       |  ✓    |   ✓      |
 | Add / settle krar                            |  ✓    |   ✓      |
 | Reports and Excel export                     |  ✓    |   ✓      |
@@ -77,7 +94,8 @@ Set the environment variable `HTH_DATA_DIR` to use a different folder (e.g. a sy
 | Delete anything                              |  ✓    |   –      |
 | Audit log                                    |  ✓    |   –      |
 | Manage users                                 |  ✓    |   –      |
-| Backup, import v3 data                       |  ✓    |   –      |
+| Backup, restore a backup, import v3 data     |  ✓    |   –      |
+| Shop-wide settings (number style, auto-lock) |  ✓    |   –      |
 
 The matrix is one table in `hth/services/permissions.py`; every screen and destructive
 button checks it, and every write records the acting user in the audit log.
@@ -86,8 +104,13 @@ button checks it, and every write records the acting user in the audit log.
 
 ## Screens
 
-* **Dashboard** – receivable / payable / stock-value / krar KPIs, activity (14 days),
-  monthly debits vs credits, receivables by age, top 10 debtors, and the krar list.
+* **Dashboard** – clickable tiles (receivable, payable, today's debits / credits, overdue
+  krar, stock value, cash & bank, accounts) in lakh / crore with the exact figure beneath;
+  debits vs credits per month, receivables by age, top 10 debtors, entries per day; the
+  krar list; and **Needs attention**: overdue promises with the amount at stake, debtors
+  silent for 180+ days, items that will run out within a month at the current selling rate,
+  stock that is expired or expiring, data errors, future-dated entries, a stale or missing
+  backup, and default passwords still in use. Click a finding to go and fix it.
 * **Sales** – sale or receive against an account; item search auto-fills the last price;
   live amount preview; today's entries on the right. `Ctrl+Enter` = sale,
   `Ctrl+Shift+Enter` = receive. The buttons read **Debit · sale / pay out** and
@@ -100,10 +123,23 @@ button checks it, and every write records the acting user in the audit log.
   entered in any unit compatible with the item's stock unit — 100 G of a KG item, 2.5 QTL of
   a crop kept in KG, 500 ML of a LTR bottle. Price is always per stock unit. Set seed / crop
   / liquid items to `KG` / `LTR` when you add them so they can be split.
+  **Several items, one account:** *+ Add line* (or Enter in the price box) collects lines;
+  Debit / Credit then posts them all — the line still in the form included — as one unit:
+  if any line is wrong nothing is written. **Undo last entry** (`Ctrl+Z`, 15 minutes)
+  reverses everything the entry wrote: ledger rows (all three for a settlement), stock
+  movement, cash-book entry or crop lot / sale, and the item's last price.
+  **Print slip** opens an 80 mm receipt of that entry. **Quick CASH / UPI / BANK** fills a
+  money entry and puts the cursor on the amount. The right side shows the picked account:
+  balance, open promise, last payment and newest entries, with *Open ledger*.
 * **Bills** – GST tax invoices (see *Bills module* below).
 * **Accounts** – create customers; searchable list with balance, days since activity and
   score; double-click for the full ledger (interest, debit, credit, running balance).
-  Admins add / edit / delete entries from the ledger.
+  Admins add / edit / delete entries from the ledger. The ledger shows *All*, the *Current
+  period* (since the last settlement), *This FY* or *Last 90 days*, has a find box, *New
+  entry ▸* (opens Sales for the account) and *WhatsApp balance* (a balance message — also
+  for accounts in credit or settled). Editing a receipt that went into the cash book updates
+  that cash-book line; deleting it removes it. Ledger rows that belong to a crop lot or sale
+  are changed from Crop Trade, so stock and FIFO costs stay right.
   **Statement** (ledger header) writes a print-ready HTML statement for a date range —
   opening balance, every entry with its interest, totals, closing balance, shop header and
   signature lines — and opens it in the browser (print or *Save as PDF*). Shop name, address,
@@ -114,21 +150,34 @@ button checks it, and every write records the acting user in the audit log.
   unrelated units (PKT → KG) ask "how many KG is 1 PKT?" — or leave it blank to relabel
   only. Quantities are multiplied, per-unit prices divided, money amounts untouched, across
   stock movements, crop lots/sales and market rates.
-* **Karar** – add or reschedule a promise date, settle it; Overdue / Today / Upcoming tabs.
+* **Karar** – add or reschedule a promise date, settle it; Overdue / Today / Upcoming tabs
+  (opens on Overdue when anything is overdue), find box.
   **Reminders**: *Copy reminder* puts a ready message (name, amount, promised date) on the
   clipboard; *WhatsApp* opens a chat when the account details contain a 10-digit mobile
-  number; *Copy all shown* copies one message per row. Template in Settings.
+  number; *Copy all shown* copies one message per row. Template in Settings. Accounts that
+  owe nothing get a balance message instead and are left out of *Copy all shown*.
 * **Reports** – see below. Double-click a row to jump to the ledger or item.
 * **Users** (admin) – add, reset password, change role, activate / deactivate.
-* **Settings** – light/dark theme, backup (plus **automatic daily backup** on the first
-  start each day, keeping the last N), v3 import, shop details, reminder template,
-  categories, run the setup wizard again, change password.
+* **Settings** – theme (light / dark / system, remembered), **number style** (Indian
+  12,34,567.00 or international 1,234,567.00, used everywhere including statements and
+  reminders), **auto-lock** after N idle minutes, backup (plus **automatic daily backup** on
+  the first start each day, keeping the last N), **restore a backup**, v3 import, shop
+  details, reminder template, categories, run the setup wizard again, change password.
+* **Lock** – `Ctrl+L`, the sidebar *Lock* button or the idle timer hides the work behind a
+  password prompt; whatever was half-typed is still there after unlocking. *Sign in as
+  someone else* signs out. After five wrong passwords a username waits 30 s (doubling).
+* **Sidebar** – icons, shortcut hints, and ☰ to collapse it to icons on small screens
+  (remembered). The header shows today's date (it rolls over at midnight, and so do date
+  fields still showing the old day) and the status bar the time of the last backup.
 * **First run** – a wizard asks for shop details, new admin / employee passwords and an
   optional v3 folder; *Skip* to do it later.
 * **Search** – `Ctrl+K` (or the header button) finds accounts, items and bills; Enter jumps
-  to the ledger, item history or bill.
+  to the ledger, item history or bill. Every search box matches all the words you type in
+  any order (`ram rohtak`), exact id and name-starts-with first.
+* **Tables** – click a title to sort; Enter or double-click opens the row; `Ctrl+C` copies
+  the row and right-click copies all rows (tab-separated: paste into Excel or WhatsApp).
 
-`Alt+D/S/A/I/K/R/B/C/U/T` switch screens.
+`Alt+D/S/A/I/K/R/B/C/U/T` switch screens; **`F1` lists every shortcut.**
 
 ---
 
@@ -214,41 +263,40 @@ Built in (all exportable to Excel, all sortable by clicking a column):
 |           | Top debtors                   | how many              |
 |           | Interest summary              | –                     |
 |           | Customer activity             | date range            |
+|           | **Collections list** (v5)     | – everyone who owes, biggest first, with phone, last payment, promise and status: the call list |
+|           | **Interest by financial year** (v5) | – open balances split into principal entered and interest accrued per FY |
 | Trends    | Monthly debits vs credits     | months                |
 |           | Day book                      | date                  |
+|           | **Promised receipts forecast** (v5) | next N days – open krar by week, overdue first, with a running total |
 | Inventory | Stock on hand                 | –                     |
 |           | Item movement                 | date range            |
 |           | Low stock                     | threshold             |
 |           | Expiring items                | days                  |
 |           | Dead stock                    | days without a sale   |
+|           | **Item profit** (v5)          | date range – sales value, cost at today's cost, margin and margin % per item (same rule as Finance → P&L) |
+|           | **Reorder suggestions** (v5)  | sales window – items whose recent sales use up the stock, with days left |
 | Krar      | Krar list                     | bucket                |
-| Admin     | Audit log                     | date range, action, search |
+| Tax       | **GST summary** (v5)          | date range – invoice lines by month and GST rate: taxable, CGST, SGST, total |
+| Admin     | **Staff activity** (v5)       | date range – per user: days active, sales, receipts, edits, deletes, last seen |
+|           | Audit log                     | date range, action, search |
 |           | Data check                    | – (double-click a finding to open the record) |
+
+Every report has a **Filter rows** box (any words), and date defaults are worked out when
+the report is opened, so they are right after midnight too.
 
 Adding a report is one `ReportSpec` entry in `hth/ui/views/reports.py`; the query goes in
 `hth/services/reports.py`.
 
 ### Suggested next reports and dashboard widgets
 
-Ideas that fit the data you already have, roughly in order of value to the shop:
+Done in v4.6–v5: customer statement, collections list, interest by FY, receipts forecast,
+GST summary, item profit, risk flags (*Needs attention*), staff activity, reorder
+suggestions, WhatsApp reminders. Still open, roughly in order of value:
 
-1. **Customer statement (PDF / print)** – ledger for a date range with the interest
-   breakdown, to hand to the customer. The ledger rows already exist; add a print layout.
-2. **Collections planner** – krar due this week merged with balance and phone number, sorted
-   by amount; one-tap "call list".
-3. **Interest earned per financial year** – how much of the receivable is interest vs
-   principal, by year, for tax planning.
-4. **Cash-flow forecast** – expected receipts from krar dates for the next 30/60/90 days.
-5. **GST summary** – items carry a GST rate; group sales by rate for the monthly return
-   (wire this up when the bills module returns).
-6. **Item profitability** – `last price − stock value` × quantity sold, by item and month.
-7. **Season comparison** – kharif vs rabi sales by item type (F/P/S/O), year on year.
-8. **Customer risk flags on the dashboard** – balance growing three months in a row with no
-   receipt; no activity for 180+ days with a balance.
-9. **Expiry calendar** – items expiring in the next quarter as a month grid.
-10. **Employee activity** – entries per user per day (from the audit log) for supervision.
-11. **Reorder suggestions** – items whose 30-day sales exceed stock on hand.
-12. **WhatsApp reminders** – template message for overdue krar (needs an outbound integration).
+1. **Season comparison** – kharif vs rabi sales by item type (F/P/S/O), year on year.
+2. **Expiry calendar** – items expiring in the next quarter as a month grid.
+3. **Balance trend flags** – balance growing three months in a row with no receipt.
+4. **Customer phone field** – today the mobile number is read out of *Other details*.
 
 ---
 
@@ -263,11 +311,14 @@ hth/
   logging_setup.py          rotating file log in <data>/logs
   db/connection.py          Database: one file, transaction-scoped, re-entrant connections
   db/schema.py              versioned migrations (PRAGMA user_version)
-  domain/                   constants, interest formula, dataclasses (no I/O)
+  domain/                   constants, interest formula, numbers (Indian grouping),
+                            units, dataclasses (no I/O)
   services/                 business logic: accounts, inventory, sales, krar, reports,
-                            audit, auth, permissions, export, integrity (data checks)
+                            audit, auth, permissions, export, integrity (data checks),
+                            insights (Needs attention), preferences, backup/restore,
+                            slips (counter receipts), statements, reminders, search
   migration/from_v3.py      legacy importer
-  ui/                       customtkinter app: theme, widgets, views, app shell
+  ui/                       customtkinter app: theme, icons, widgets, views, app shell
   modules/                  optional feature modules (bills, crop trading) – see README there
 tests/                      pytest suite (business rules, migration, opt-in UI walkthrough)
 ```
@@ -281,6 +332,7 @@ import Tk.
 pip install -r requirements-dev.txt
 pytest                      # business-rule tests (fast, in-memory SQLite)
 HTH_UI_TESTS=1 pytest tests/test_ui_smoke.py   # drives the real window (needs a display)
+ruff format hth tests tools # formatting
 ruff check hth tests tools  # lint
 ```
 
