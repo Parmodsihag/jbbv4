@@ -1,5 +1,89 @@
 # Changelog
 
+## 5.0.0 — 2026-10-19
+
+Same business rules and numbers as v4: on a copy of the shop's database every customer
+balance, day count, score and the interest summary are byte-for-byte identical to v4.
+
+### Data and safety
+- **Own data folder** `C:\JBB\v5`. On the first start v4's `hth.db` is copied in through
+  SQLite's backup API from a read-only connection — v4's files are never written — and a
+  one-time notice says where the data came from.
+- **Restore a backup** (Settings → Data, admin): checks the file (integrity, that it is an
+  HTH database, not from a newer version), saves the current data as
+  `hth_before_restore_<time>.db`, restores, migrates, signs everyone out.
+- **Atomic schema migrations**: each runs in one transaction with its version bump (before,
+  `executescript` committed statement by statement, so a failure left a half-migrated
+  database), and an existing database is backed up first (`hth_pre_migration_v<N>_*.db`).
+- **Screen lock**: `Ctrl+L`, a sidebar button, or after N idle minutes (Settings); work in
+  progress stays behind the lock. Navigation and shortcuts are disabled while locked.
+- **Login lockout**: after 5 wrong passwords a username waits 30 s, doubling each further
+  failure; failed sign-ins are written to the audit log.
+
+### Faster
+- Customer balances for everyone are computed from **one** ordered query instead of two per
+  customer: dashboard / Accounts list / account summary / re-score 4.8 s → 0.1 s, interest
+  summary 3.0 s → 0.11 s on the shop's 663 accounts. Karar fetches its balances in one call.
+
+### Sales screen
+- **Several items, one account**: *+ Add line* (Enter in the price box) collects lines and
+  Debit / Credit posts them together, atomically (`SalesService.record_lines`).
+- **Undo last entry** (`Ctrl+Z`, 15 minutes): removes the ledger rows (all three for a
+  settlement), stock movement, cash-book entry or crop lot / sale, and restores the item's
+  last price (`SalesService.undo`).
+- **Account snapshot** beside the form: balance, open promise, last payment, newest entries.
+- **Print slip**: an 80 mm receipt for the entry just posted.
+- **Quick CASH / UPI / BANK** money entries; Date and Tag share a row; Enter moves quantity →
+  price → add line; `Alt+Up/Down` steps the date.
+
+### Dashboard
+- Clickable tiles in lakh / crore with the exact amount beneath; **Today** shows the day's
+  debit and credit amounts (a settlement counts once) instead of audit-entry counts.
+- **Needs attention** panel: overdue promises and the money at stake, promises due today,
+  debtors silent 180+ days, items that will run out within a month, expired / expiring
+  stock, data errors, future-dated entries, missing or stale backup, default passwords.
+- Charts read in L / Cr instead of matplotlib's `1e6`; month labels `Nov 25`; aging as bars
+  with customer counts; the legend no longer covers the bars.
+
+### New reports
+Collections list · Interest by financial year · Promised receipts forecast · Item profit ·
+Reorder suggestions · GST summary (invoices) · Staff activity. Every report has a row filter.
+
+### Everywhere
+- **Indian digit grouping** (12,34,567.00) by default, switchable to international; used by
+  screens, statements, reminders, search results and chart axes.
+- New shell: icon sidebar with shortcut hints, collapsible to icons; screen subtitles; the
+  header date rolls over at midnight; last-backup time in the status bar; theme remembered.
+- Ledger: *All / Current period / This FY / Last 90 days*, find box, *New entry ▸*,
+  *WhatsApp balance*.
+- Tables: Enter opens a row, `Ctrl+C` copies it, right-click copies all rows for Excel /
+  WhatsApp. Search boxes and `Ctrl+K` match every word in any order.
+- `F1` lists every keyboard shortcut.
+
+### Fixed
+- Dashboard, Crop Trade and Finance chart cards never repainted after the window resized:
+  `ChartCard` kept its matplotlib canvas in `self._canvas`, the attribute customtkinter uses
+  for the frame's own background, and the resulting `AttributeError` was silently swallowed.
+- Dashboard KPI tiles were ~300 px tall with their values cut off (a `CTkFrame` accent bar
+  defaulted to 200 px high).
+- Sales, Karar and other date fields kept **yesterday's date** when the app stayed open
+  overnight; report date defaults were frozen when the program started.
+- Editing or deleting a ledger receipt / payment that the Sales screen had booked into the
+  cash book left the cash-book entry unchanged, so cash balances drifted. They now follow.
+- Ledger rows created by a crop lot / sale could be edited or deleted from the ledger,
+  leaving stock and FIFO costs inconsistent; now refused with a pointer to Crop Trade.
+- Deleting a farmer or crop item that has lots failed with a raw `FOREIGN KEY constraint
+  failed`; now a clear message.
+- Admins could not edit negative settlement rows (*Settled Amount* / *Discount*).
+- Changing your password wrote a spurious "login" entry to the audit log.
+- Karar reminders said "please pay Rs -1,000" for accounts in credit; those now get a
+  balance message and are left out of *Copy all shown*.
+- Karar's toolbar overlapped its Overdue / Today switch at normal window sizes, and it
+  opened on an empty *Today* tab while promises were overdue.
+- Crop Trade's Sales table was squeezed to its header row.
+- Sales screen panels (crop fields, money account) could end up in the wrong state when
+  toggled quickly (`winfo_ismapped` is only true after Tk's idle pass).
+
 ## 4.7.0 — 2026-08-30
 
 - **Payment reminders** on the Karar screen: copy a message, open WhatsApp (when a mobile
