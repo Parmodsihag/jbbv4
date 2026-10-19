@@ -16,6 +16,7 @@ MONO_FAMILY = "Consolas" if sys.platform.startswith("win") else "Menlo"
 PALETTE: dict[str, tuple[str, str]] = {
     "bg": ("#EEF2F6", "#0F172A"),
     "surface": ("#FFFFFF", "#1E293B"),
+    "surface_hover": ("#F1F5F9", "#243247"),
     "surface2": ("#E2E8F0", "#334155"),
     "surface3": ("#CBD5E1", "#475569"),
     "text": ("#0F172A", "#F1F5F9"),
@@ -27,7 +28,8 @@ PALETTE: dict[str, tuple[str, str]] = {
     "danger": ("#B91C1C", "#F87171"),
     "warning": ("#B45309", "#FBBF24"),
     "sidebar": ("#0F172A", "#020617"),
-    "sidebar_hover": ("#1E293B", "#1E293B"),
+    "sidebar_hover": ("#1A2540", "#0F172A"),
+    "sidebar_active": ("#22304F", "#16213A"),
     "sidebar_text": ("#E2E8F0", "#E2E8F0"),
     "stripe": ("#F8FAFC", "#16213A"),
     "select": ("#CFFAFE", "#164E63"),
@@ -99,6 +101,6 @@ def apply_appearance(mode: str) -> None:
     style_treeview()
 
 
-def init_theme() -> None:
+def init_theme(mode: str = "dark") -> None:
     ctk.set_default_color_theme("blue")
-    ctk.set_appearance_mode("dark")
+    ctk.set_appearance_mode(mode if mode in ("light", "dark", "system") else "dark")

@@ -1,10 +1,11 @@
-"""Main window: login, sidebar navigation, header, content area, status bar."""
+"""Main window: login, sidebar navigation, header, content area, status bar, lock screen."""
 
 from __future__ import annotations
 
 import datetime as dt
 import logging
 import sys
+import time
 
 import customtkinter as ctk
 
@@ -14,20 +15,22 @@ from hth.db.connection import Database
 from hth.domain.models import User
 from hth.modules import discover
 from hth.services.permissions import ROLES, Permission
+from hth.services.preferences import Preferences
 from hth.services.search import SearchService
-from hth.ui import theme
+from hth.ui import icons, theme
 from hth.ui.context import AppContext
 from hth.ui.views.base import BaseView
 from hth.ui.views.customers import CustomersView
 from hth.ui.views.dashboard import DashboardView
 from hth.ui.views.items import ItemsView
 from hth.ui.views.karar import KararView
-from hth.ui.views.login import LoginView
+from hth.ui.views.login import LockView, LoginView
 from hth.ui.views.reports import ReportsView
 from hth.ui.views.sales import SalesView
 from hth.ui.views.settings import SettingsView
 from hth.ui.views.setup import SetupView, setup_completed
 from hth.ui.views.users import UsersView
+from hth.ui.widgets.nav import NavItem
 from hth.ui.widgets.palette import SearchPalette
 from hth.ui.widgets.toast import ToastHost
 
@@ -45,12 +48,31 @@ CORE_VIEWS: list[tuple[str, str, str, Permission | None, type[BaseView]]] = [
     ("settings", "Settings", "t", None, SettingsView),
 ]
 
+SUBTITLES = {
+    "dashboard": "The shop at a glance",
+    "sales": "Sales, receipts and crop trades",
+    "customers": "Customers, farmers and buyers - balances and ledgers",
+    "items": "Stock, prices and movements",
+    "karar": "Promised payment dates and reminders",
+    "reports": "Every report, sortable and exportable",
+    "users": "Who can sign in and what they may do",
+    "settings": "Shop details, appearance, backups and rules",
+    "bills": "GST tax invoices",
+    "crops": "Crop lots, FIFO sales, stock and market rates",
+    "finance": "Cash book, expenses, cash flow and profit",
+}
+
+SIDEBAR_WIDE, SIDEBAR_COMPACT = 224, 64
+TICK_MS = 15_000
+
 
 class App(ctk.CTk):
     def __init__(self, db: Database, settings: Settings):
-        theme.init_theme()
+        self.prefs = Preferences(db)
+        self.prefs.apply_number_style()
+        self.appearance = self.prefs.theme()
+        theme.init_theme(self.appearance)
         super().__init__()
-        self.appearance = "dark"
         self.ctx = AppContext(db=db, settings=settings, app=self)
         self.title(f"{__app_name__} {__version__}")
         self.geometry("1440x880")
@@ -59,15 +81,21 @@ class App(ctk.CTk):
         theme.style_treeview()
         self.toasts = ToastHost(self)
         self._views: dict[str, BaseView] = {}
-        self._nav_buttons: dict[str, ctk.CTkButton] = {}
+        self._nav_buttons: dict[str, NavItem] = {}
         self._active: str | None = None
         self._shell: ctk.CTkFrame | None = None
         self._login: LoginView | None = None
         self._setup: SetupView | None = None
+        self._lock: LockView | None = None
         self._palette: SearchPalette | None = None
         self._registry = self._build_registry()
+        self._today = dt.date.today()
+        self._last_input = time.monotonic()
+        for seq in ("<Key>", "<Button>", "<MouseWheel>"):
+            self.bind_all(seq, self._touch, add="+")
         self._maximize()
         self.show_login()
+        self.after(TICK_MS, self._tick)
 
     # Window ------------------------------------------------------------------------------
     def report_callback_exception(self, exc, val, tb) -> None:  # noqa: D401 - Tk hook
@@ -95,8 +123,45 @@ class App(ctk.CTk):
             entries.append((m.key, m.label, m.shortcut or "", m.permission, m.view_factory))
         return entries
 
-    # Login / logout ----------------------------------------------------------------------
+    # Clock: day change and idle lock ---------------------------------------------------
+    def _touch(self, _event=None) -> None:
+        self._last_input = time.monotonic()
+
+    def _tick(self) -> None:
+        try:
+            today = dt.date.today()
+            if today != self._today:
+                self._today = today
+                self._on_day_change()
+            minutes = self.prefs.lock_minutes()
+            if minutes and self.is_signed_in and not self.is_locked:
+                if time.monotonic() - self._last_input >= minutes * 60:
+                    self.lock(reason="idle")
+        except Exception:  # noqa: BLE001 - the clock must keep ticking
+            log.exception("tick failed")
+        self.after(TICK_MS, self._tick)
+
+    def _on_day_change(self) -> None:
+        log.info("date changed to %s", self._today)
+        if hasattr(self, "date_label"):
+            self.date_label.configure(text=self._today.strftime("%A, %d %B %Y"))
+        for view in self._views.values():
+            try:
+                view.on_day_change()
+            except Exception:  # noqa: BLE001
+                log.exception("day change failed for %s", view.key)
+
+    # Login / logout / lock ---------------------------------------------------------------
+    @property
+    def is_signed_in(self) -> bool:
+        return self._shell is not None and self.ctx.user is not None
+
+    @property
+    def is_locked(self) -> bool:
+        return self._lock is not None
+
     def show_login(self) -> None:
+        self._close_lock()
         if self._shell is not None:
             self._shell.destroy()
             self._shell = None
@@ -125,9 +190,47 @@ class App(ctk.CTk):
         self.show_login()
         self.toast("Setup complete - sign in with your new password", "success")
 
+    def on_login(self, user: User) -> None:
+        self.ctx.user = user
+        if self._login is not None:
+            self._login.destroy()
+            self._login = None
+        self._build_shell()
+        self._last_input = time.monotonic()
+        self.navigate("dashboard")
+        self.toast(f"Welcome, {user.full_name or user.username}", "success")
+
+    def logout(self) -> None:
+        self.ctx.audit.log("08", f"logout {self.ctx.username}", self.ctx.username)
+        self.show_login()
+
+    def lock(self, reason: str = "manual") -> None:
+        """Hide the work (kept as it is) behind a password prompt for the signed-in user."""
+        if not self.is_signed_in or self.is_locked:
+            return
+        if self._palette is not None and self._palette.winfo_exists():
+            self._palette.close()
+        self.ctx.audit.log("08", f"screen locked ({reason}) {self.ctx.username}", self.ctx.username)
+        self._shell.pack_forget()
+        self._lock = LockView(self, self.ctx)
+        self._lock.pack(fill="both", expand=True)
+        self._lock.on_show()
+
+    def unlock(self) -> None:
+        self._close_lock()
+        if self._shell is not None:
+            self._shell.pack(fill="both", expand=True)
+        self._last_input = time.monotonic()
+        self.ctx.audit.log("08", f"screen unlocked {self.ctx.username}", self.ctx.username)
+
+    def _close_lock(self) -> None:
+        if self._lock is not None:
+            self._lock.destroy()
+            self._lock = None
+
     # Global search -----------------------------------------------------------------------
     def open_search(self) -> None:
-        if self._shell is None or self.ctx.user is None:
+        if not self.is_signed_in or self.is_locked:
             return
         if self._palette is not None and self._palette.winfo_exists():
             self._palette.close()
@@ -148,19 +251,6 @@ class App(ctk.CTk):
         elif hit.kind == "bill":
             self.navigate("bills", bill_number=hit.id)
 
-    def on_login(self, user: User) -> None:
-        self.ctx.user = user
-        if self._login is not None:
-            self._login.destroy()
-            self._login = None
-        self._build_shell()
-        self.navigate("dashboard")
-        self.toast(f"Welcome, {user.full_name or user.username}", "success")
-
-    def logout(self) -> None:
-        self.ctx.audit.log("08", f"logout {self.ctx.username}", self.ctx.username)
-        self.show_login()
-
     # Shell -------------------------------------------------------------------------------
     def _build_shell(self) -> None:
         shell = ctk.CTkFrame(self, fg_color="transparent")
@@ -168,85 +258,115 @@ class App(ctk.CTk):
         shell.grid_columnconfigure(1, weight=1)
         shell.grid_rowconfigure(1, weight=1)
         self._shell = shell
+        compact = self.prefs.sidebar_compact()
 
-        sidebar = ctk.CTkFrame(shell, width=210, fg_color=theme.color("sidebar"), corner_radius=0)
+        self.sidebar = sidebar = ctk.CTkFrame(
+            shell, width=SIDEBAR_COMPACT if compact else SIDEBAR_WIDE, fg_color=theme.color("sidebar"), corner_radius=0
+        )
         sidebar.grid(row=0, column=0, rowspan=3, sticky="nsw")
         sidebar.grid_propagate(False)
-        ctk.CTkLabel(sidebar, text=__company__, font=theme.font(11, "bold"), text_color=theme.color("accent")).pack(
-            pady=(22, 0), padx=16, anchor="w"
-        )
-        ctk.CTkLabel(
-            sidebar,
-            text=__app_name__,
-            font=theme.font(17, "bold"),
+        sidebar.pack_propagate(False)
+
+        brand = ctk.CTkFrame(sidebar, fg_color="transparent")
+        brand.pack(fill="x", padx=10, pady=(14, 10))
+        self.menu_button = ctk.CTkButton(
+            brand,
+            text=icons.icon("menu"),
+            font=icons.font(15),
+            width=36,
+            height=32,
+            fg_color="transparent",
+            hover_color=theme.color("sidebar_hover"),
             text_color=theme.color("sidebar_text"),
-            wraplength=180,
-            justify="left",
+            command=self.toggle_sidebar,
+        )
+        self.menu_button.pack(side="left")
+        self.brand_text = ctk.CTkFrame(brand, fg_color="transparent")
+        self.brand_text.pack(side="left", padx=(6, 0), fill="x", expand=True)
+        ctk.CTkLabel(
+            self.brand_text, text=__company__, font=theme.font(10, "bold"), text_color=theme.color("accent"), anchor="w"
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            self.brand_text,
+            text=__app_name__,
+            font=theme.font(15, "bold"),
+            text_color=theme.color("sidebar_text"),
             anchor="w",
-        ).pack(padx=16, pady=(0, 18), anchor="w")
+        ).pack(fill="x")
+
         for key, label, shortcut, perm, _cls in self._registry:
             if not self.ctx.can(perm):
                 continue
-            hint = f"Alt+{shortcut.upper()}" if shortcut else ""
-            b = ctk.CTkButton(
+            item = NavItem(
                 sidebar,
-                text=f"{label:<14}{hint:>7}" if hint else label,
-                anchor="w",
-                height=40,
-                corner_radius=8,
-                font=theme.font(13),
-                fg_color="transparent",
-                hover_color=theme.color("sidebar_hover"),
-                text_color=theme.color("sidebar_text"),
-                command=lambda k=key: self.navigate(k),
+                key,
+                label,
+                f"Alt+{shortcut.upper()}" if shortcut else "",
+                lambda k=key: self.navigate(k),
             )
-            b.pack(fill="x", padx=10, pady=2)
-            self._nav_buttons[key] = b
+            item.pack(fill="x", padx=8, pady=1)
+            self._nav_buttons[key] = item
             if shortcut:
                 self.bind(f"<Alt-{shortcut}>", lambda e, k=key: self.navigate(k))
                 self.bind(f"<Alt-{shortcut.upper()}>", lambda e, k=key: self.navigate(k))
+
         spacer = ctk.CTkFrame(sidebar, fg_color="transparent")
         spacer.pack(fill="both", expand=True)
         u = self.ctx.user
-        chip = ctk.CTkFrame(sidebar, fg_color=theme.color("sidebar_hover"), corner_radius=8)
-        chip.pack(fill="x", padx=10, pady=(0, 6))
+        self.user_chip = chip = ctk.CTkFrame(sidebar, fg_color=theme.color("sidebar_hover"), corner_radius=10)
+        chip.pack(fill="x", padx=8, pady=(0, 6))
+        initials = "".join(p[0] for p in (u.full_name or u.username).split()[:2]).upper() or "?"
         ctk.CTkLabel(
             chip,
+            text=initials,
+            width=34,
+            height=34,
+            corner_radius=17,
+            fg_color=theme.color("accent"),
+            text_color=theme.color("accent_text"),
+            font=theme.font(12, "bold"),
+        ).pack(side="left", padx=(8, 8), pady=8)
+        self.user_text = ctk.CTkFrame(chip, fg_color="transparent")
+        self.user_text.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(
+            self.user_text,
             text=u.full_name or u.username,
-            font=theme.font(13, "bold"),
+            font=theme.font(12, "bold"),
             text_color=theme.color("sidebar_text"),
             anchor="w",
-        ).pack(fill="x", padx=10, pady=(8, 0))
+        ).pack(fill="x")
         ctk.CTkLabel(
-            chip,
+            self.user_text,
             text=f"@{u.username} · {ROLES.get(u.role, u.role)}",
-            font=theme.font(11),
+            font=theme.font(10),
             text_color=theme.color("muted"),
             anchor="w",
-        ).pack(fill="x", padx=10, pady=(0, 8))
-        ctk.CTkButton(
-            sidebar,
-            text="Sign out",
-            height=32,
-            font=theme.font(12),
-            fg_color="transparent",
-            border_width=1,
-            border_color=theme.color("muted"),
-            text_color=theme.color("sidebar_text"),
-            hover_color=theme.color("sidebar_hover"),
-            command=self.logout,
-        ).pack(fill="x", padx=10, pady=(0, 16))
+        ).pack(fill="x")
 
-        header = ctk.CTkFrame(shell, height=56, fg_color="transparent")
-        header.grid(row=0, column=1, sticky="ew", padx=16, pady=(10, 0))
-        self.header_title = ctk.CTkLabel(header, text="", font=theme.font(22, "bold"))
-        self.header_title.pack(side="left")
+        self.account_buttons = row = ctk.CTkFrame(sidebar, fg_color="transparent")
+        row.pack(fill="x", padx=8, pady=(0, 14))
+        row.grid_columnconfigure((0, 1), weight=1)
+        self.lock_button = self._side_button(row, "Lock", lambda: self.lock())
+        self.lock_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        self.signout_button = self._side_button(row, "Sign out", self.logout)
+        self.signout_button.grid(row=0, column=1, sticky="ew", padx=(3, 0))
+
+        header = ctk.CTkFrame(shell, height=60, fg_color="transparent")
+        header.grid(row=0, column=1, sticky="ew", padx=18, pady=(12, 0))
+        titles = ctk.CTkFrame(header, fg_color="transparent")
+        titles.pack(side="left")
+        self.header_title = ctk.CTkLabel(titles, text="", font=theme.font(22, "bold"), anchor="w")
+        self.header_title.pack(fill="x")
+        self.header_subtitle = ctk.CTkLabel(
+            titles, text="", font=theme.font(12), text_color=theme.color("muted"), anchor="w"
+        )
+        self.header_subtitle.pack(fill="x")
         self.theme_button = ctk.CTkButton(
             header,
-            text="☾" if self.appearance == "dark" else "☀",
-            width=36,
-            height=32,
-            font=theme.font(15),
+            text=self._theme_icon(),
+            font=icons.font(15),
+            width=38,
+            height=34,
             fg_color=theme.color("surface2"),
             hover_color=theme.color("surface3"),
             text_color=theme.color("text"),
@@ -255,23 +375,27 @@ class App(ctk.CTk):
         self.theme_button.pack(side="right")
         ctk.CTkButton(
             header,
-            text="🔍  Search   Ctrl+K",
-            width=150,
-            height=32,
+            text="Search      Ctrl+K",
+            width=170,
+            height=34,
             font=theme.font(12),
+            anchor="w",
             fg_color=theme.color("surface2"),
             hover_color=theme.color("surface3"),
-            text_color=theme.color("text"),
+            text_color=theme.color("muted"),
             command=self.open_search,
         ).pack(side="right", padx=8)
-        self.bind("<Control-k>", lambda e: self.open_search())
-        self.bind("<Control-K>", lambda e: self.open_search())
-        ctk.CTkLabel(
+        self.date_label = ctk.CTkLabel(
             header,
-            text=dt.date.today().strftime("%A, %d %B %Y"),
+            text=self._today.strftime("%A, %d %B %Y"),
             font=theme.font(13),
             text_color=theme.color("muted"),
-        ).pack(side="right", padx=14)
+        )
+        self.date_label.pack(side="right", padx=14)
+        self.bind("<Control-k>", lambda e: self.open_search())
+        self.bind("<Control-K>", lambda e: self.open_search())
+        self.bind("<Control-l>", lambda e: self.lock())
+        self.bind("<Control-L>", lambda e: self.lock())
 
         self.content = ctk.CTkFrame(shell, fg_color="transparent")
         self.content.grid(row=1, column=1, sticky="nsew", padx=12, pady=8)
@@ -288,11 +412,65 @@ class App(ctk.CTk):
             font=theme.font(11),
             text_color=theme.color("muted"),
         ).pack(side="right", padx=16)
+        self.backup_label = ctk.CTkLabel(status, text="", font=theme.font(11), text_color=theme.color("muted"))
+        self.backup_label.pack(side="right", padx=8)
+        self.refresh_backup_label()
+        self._apply_sidebar_mode(compact)
+
+    def _side_button(self, master, text: str, command) -> ctk.CTkButton:
+        return ctk.CTkButton(
+            master,
+            text=text,
+            height=32,
+            font=theme.font(12),
+            fg_color="transparent",
+            border_width=1,
+            border_color=theme.color("surface3"),
+            text_color=theme.color("sidebar_text"),
+            hover_color=theme.color("sidebar_hover"),
+            command=command,
+        )
+
+    def refresh_backup_label(self) -> None:
+        if not hasattr(self, "backup_label"):
+            return
+        last = self.ctx.backup.last_backup()
+        if last is None:
+            text = "No backup yet"
+        else:
+            when = dt.datetime.fromtimestamp(last.stat().st_mtime)
+            text = f"Last backup {when:%d %b %H:%M}"
+        self.backup_label.configure(text=text)
+
+    # Sidebar mode ------------------------------------------------------------------------
+    def toggle_sidebar(self) -> None:
+        compact = self.sidebar.cget("width") > SIDEBAR_COMPACT
+        self.prefs.set_sidebar_compact(compact)
+        self._apply_sidebar_mode(compact)
+
+    def _apply_sidebar_mode(self, compact: bool) -> None:
+        self.sidebar.configure(width=SIDEBAR_COMPACT if compact else SIDEBAR_WIDE)
+        for item in self._nav_buttons.values():
+            item.set_compact(compact)
+        if compact:
+            self.brand_text.pack_forget()
+            self.user_text.pack_forget()
+            self.lock_button.configure(text=icons.icon("lock"), font=icons.font(13))
+            self.signout_button.configure(text=icons.icon("signout"), font=icons.font(13))
+            self.lock_button.grid_configure(row=0, column=0, columnspan=2, padx=0, pady=(0, 4))
+            self.signout_button.grid_configure(row=1, column=0, columnspan=2, padx=0)
+        else:
+            self.brand_text.pack(side="left", padx=(6, 0), fill="x", expand=True)
+            self.user_text.pack(side="left", fill="x", expand=True)
+            self.lock_button.configure(text="Lock", font=theme.font(12))
+            self.signout_button.configure(text="Sign out", font=theme.font(12))
+            self.lock_button.grid_configure(row=0, column=0, columnspan=1, padx=(0, 3), pady=0)
+            self.signout_button.grid_configure(row=0, column=1, columnspan=1, padx=(3, 0))
 
     # Navigation --------------------------------------------------------------------------
     def navigate(self, key: str, **kwargs) -> None:
         entry = next((e for e in self._registry if e[0] == key), None)
-        if entry is None or not self.ctx.can(entry[3]) or self._shell is None:
+        if entry is None or not self.ctx.can(entry[3]) or self._shell is None or self.is_locked:
             return
         _key, label, _s, _p, cls = entry
         view = self._views.get(key)
@@ -304,11 +482,9 @@ class App(ctk.CTk):
         view.pack(fill="both", expand=True)
         self._active = key
         self.header_title.configure(text=label)
+        self.header_subtitle.configure(text=SUBTITLES.get(key, ""))
         for k, b in self._nav_buttons.items():
-            b.configure(
-                fg_color=theme.color("accent") if k == key else "transparent",
-                text_color=theme.color("accent_text") if k == key else theme.color("sidebar_text"),
-            )
+            b.set_active(k == key)
         try:
             view.on_show(**kwargs)
         except Exception as exc:  # noqa: BLE001
@@ -326,14 +502,21 @@ class App(ctk.CTk):
             self.status_label.configure(text=message)
 
     # Theme -------------------------------------------------------------------------------
+    def _theme_icon(self) -> str:
+        return icons.icon("moon") if ctk.get_appearance_mode().lower() == "dark" else icons.icon("sun")
+
     def toggle_theme(self) -> None:
         self.apply_theme("light" if ctk.get_appearance_mode().lower() == "dark" else "dark")
 
     def apply_theme(self, mode: str) -> None:
         self.appearance = mode
         theme.apply_appearance(mode)
+        try:
+            self.prefs.set_theme(mode)
+        except Exception:  # noqa: BLE001 - a read-only database must not break the toggle
+            log.exception("could not save theme")
         if hasattr(self, "theme_button"):
-            self.theme_button.configure(text="☾" if ctk.get_appearance_mode().lower() == "dark" else "☀")
+            self.theme_button.configure(text=self._theme_icon())
         for view in self._views.values():
             try:
                 view.on_theme_change()

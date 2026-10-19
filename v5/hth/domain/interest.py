@@ -36,17 +36,37 @@ def financial_year_end(day: dt.date) -> dt.date:
     return dt.date(year, FINANCIAL_YEAR_END_MONTH, FINANCIAL_YEAR_END_DAY)
 
 
-def calculate_interest(principal: float, from_date: str | dt.date, to_date: str | dt.date | None = None) -> float:
-    """Compound-at-FY-end interest on ``principal`` from ``from_date`` to ``to_date``."""
+def interest_schedule(
+    principal: float, from_date: str | dt.date, to_date: str | dt.date | None = None
+) -> list[tuple[dt.date, float]]:
+    """Unrounded interest per financial-year period: [(period end, interest), ...].
+
+    The periods are exactly the ones :func:`calculate_interest` adds up, so the sum of this
+    schedule (in order) is its result before rounding.
+    """
     start = parse_date(from_date)
     end = parse_date(to_date) if to_date is not None else dt.date.today()
     principal = float(principal)
-    total = 0.0
+    out = []
     while start < end:
         period_end = min(financial_year_end(start), end)
         days = (period_end - start).days
         interest = principal * days * DAILY_INTEREST_RATE
-        total += interest
+        out.append((period_end, interest))
         principal += interest
         start = period_end + dt.timedelta(days=1)
+    return out
+
+
+def fy_label(day: dt.date) -> str:
+    """Financial year containing ``day``: 2026-08-01 -> 'FY 2026-27'."""
+    end = financial_year_end(day)
+    return f"FY {end.year - 1}-{str(end.year)[2:]}"
+
+
+def calculate_interest(principal: float, from_date: str | dt.date, to_date: str | dt.date | None = None) -> float:
+    """Compound-at-FY-end interest on ``principal`` from ``from_date`` to ``to_date``."""
+    total = 0.0
+    for _period_end, interest in interest_schedule(principal, from_date, to_date):
+        total += interest
     return round(total, 2)

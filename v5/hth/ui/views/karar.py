@@ -113,7 +113,9 @@ class KararView(BaseView):
         ids = self.ctx.krar.unsettled_customer_ids()
         return [(c.id, c.display) for c in self.ctx.accounts.list_customers() if c.id in set(ids)]
 
-    def on_show(self, **kwargs) -> None:
+    def on_show(self, bucket: str | None = None, **kwargs) -> None:
+        if bucket in ("Overdue", "Today", "Upcoming", "All"):
+            self.bucket.set(bucket)
         self.account.refresh()
         self.settle_account.refresh()
         self.reload()

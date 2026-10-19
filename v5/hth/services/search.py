@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hth.db.connection import Database
+from hth.domain import numbers
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class SearchService:
                         "bill",
                         r["bill_number"],
                         f"Bill {r['bill_number']}",
-                        f"{r['date']} · {r['customer_name']} · {r['grand_total']:,.2f}",
+                        f"{r['date']} · {r['customer_name']} · {numbers.amount(r['grand_total'])}",
                     )
                 )
         return hits[:limit]

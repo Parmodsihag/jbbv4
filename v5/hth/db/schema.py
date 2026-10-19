@@ -3,7 +3,9 @@ an existing one once it has shipped."""
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
+from pathlib import Path
 
 from hth.db.connection import Database
 
@@ -313,13 +315,23 @@ def current_version(db: Database) -> int:
         return int(conn.execute("PRAGMA user_version").fetchone()[0])
 
 
-def initialize(db: Database) -> None:
-    """Apply any migrations newer than PRAGMA user_version."""
+def initialize(db: Database, backup_dir: Path | None = None) -> Path | None:
+    """Apply any migrations newer than PRAGMA user_version.
+
+    Each migration runs in its own transaction together with the version bump, so a
+    failure leaves the database exactly as it was (``executescript`` alone autocommits
+    statement by statement).  When an existing database is upgraded and ``backup_dir`` is
+    given, a copy is taken first; its path is returned.
+    """
     version = current_version(db)
-    for target, ddl in MIGRATIONS:
-        if target <= version:
-            continue
+    pending = [(target, ddl) for target, ddl in MIGRATIONS if target > version]
+    backup = None
+    if pending and version > 0 and backup_dir is not None and not db.is_memory:
+        stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = db.backup_to(backup_dir / f"hth_pre_migration_v{version}_{stamp}.db")
+        log.info("Backed up schema v%d database to %s before migrating", version, backup.name)
+    for target, ddl in pending:
         log.info("Applying schema migration %d", target)
         with db.connect() as conn:
-            conn.executescript(ddl)
-            conn.execute(f"PRAGMA user_version = {int(target)}")
+            conn.executescript(f"BEGIN;\n{ddl}\nPRAGMA user_version = {int(target)};\nCOMMIT;")
+    return backup

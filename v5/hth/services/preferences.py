@@ -1,0 +1,60 @@
+"""Shop-wide UI and security preferences, stored in the settings table."""
+
+from __future__ import annotations
+
+from hth.db.connection import Database
+from hth.domain import numbers
+from hth.services.settings import SettingsService
+
+DEFAULTS = {
+    "ui.theme": "dark",  # light | dark | system
+    "ui.number_style": "indian",  # indian | international
+    "ui.sidebar_compact": "0",
+    "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
+}
+THEMES = ("light", "dark", "system")
+
+
+class Preferences:
+    def __init__(self, db: Database):
+        self.settings = SettingsService(db, DEFAULTS)
+
+    def theme(self) -> str:
+        v = self.settings.get("ui.theme").lower()
+        return v if v in THEMES else "dark"
+
+    def set_theme(self, mode: str) -> None:
+        if mode not in THEMES:
+            raise ValueError(f"Theme must be one of {', '.join(THEMES)}.")
+        self.settings.set("ui.theme", mode)
+
+    def number_style(self) -> str:
+        v = self.settings.get("ui.number_style").lower()
+        return v if v in numbers.STYLES else "indian"
+
+    def set_number_style(self, style: str) -> None:
+        if style not in numbers.STYLES:
+            raise ValueError("Number style must be indian or international.")
+        self.settings.set("ui.number_style", style)
+        numbers.set_style(style)
+
+    def apply_number_style(self) -> None:
+        numbers.set_style(self.number_style())
+
+    def sidebar_compact(self) -> bool:
+        return self.settings.get_bool("ui.sidebar_compact")
+
+    def set_sidebar_compact(self, on: bool) -> None:
+        self.settings.set("ui.sidebar_compact", "1" if on else "0")
+
+    def lock_minutes(self) -> int:
+        try:
+            return max(0, int(float(self.settings.get("security.lock_minutes"))))
+        except ValueError:
+            return 0
+
+    def set_lock_minutes(self, minutes: int) -> None:
+        minutes = int(minutes)
+        if minutes < 0 or minutes > 24 * 60:
+            raise ValueError("Auto-lock must be between 0 (off) and 1440 minutes.")
+        self.settings.set("security.lock_minutes", str(minutes))
