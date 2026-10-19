@@ -455,3 +455,14 @@ def test_v5_quick_money_slip_and_shortcuts(app, monkeypatch):
     sheets = [w for w in app.winfo_children() if isinstance(w, ShortcutSheet)]
     assert sheets
     sheets[0].destroy()
+
+
+def test_v5_employee_cannot_open_admin_reports_by_link(app):
+    _login(app, "emp1", "emp1")
+    app.navigate("reports", report="datacheck")
+    _pump(app, 10)
+    rv = app._views["reports"]
+    assert rv.spec is None or rv.spec.key != "datacheck"
+    app.navigate("reports", report="collections")
+    _pump(app, 10)
+    assert rv.spec.key == "collections"

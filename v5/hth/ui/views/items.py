@@ -49,13 +49,13 @@ class ItemsView(BaseView):
         self.source.grid(row=1, column=0, columnspan=2, sticky="ew", pady=4)
         self.date = DateField(inner)
         self.date.grid(row=2, column=0, sticky="ew", pady=4, padx=(0, 6))
-        self.opening = LabeledEntry(inner, "Opening quantity", placeholder="0")
+        self.opening = LabeledEntry(inner, "Opening qty", placeholder="0")
         self.opening.grid(row=2, column=1, sticky="ew", pady=4, padx=(6, 0))
         self.stock_value = LabeledEntry(inner, "Stock value (cost)", placeholder="0.00")
         self.stock_value.grid(row=3, column=0, sticky="ew", pady=4, padx=(0, 6))
-        self.last_value = LabeledEntry(inner, "Last sale price", placeholder="0.00")
+        self.last_value = LabeledEntry(inner, "Sale price", placeholder="0.00")
         self.last_value.grid(row=3, column=1, sticky="ew", pady=4, padx=(6, 0))
-        self.unit = LabeledOption(inner, "Stock unit (KG/LTR for loose sales)", UNITS)
+        self.unit = LabeledOption(inner, "Stock unit (KG/LTR = loose)", UNITS)
         self.unit.grid(row=4, column=0, sticky="ew", pady=4, padx=(0, 6))
         self.batch = LabeledEntry(inner, "Batch", default="NA")
         self.batch.grid(row=4, column=1, sticky="ew", pady=4, padx=(6, 0))
@@ -63,9 +63,9 @@ class ItemsView(BaseView):
         self.expiry.grid(row=5, column=0, sticky="ew", pady=4, padx=(0, 6))
         self.gst = LabeledEntry(inner, "GST %", placeholder="0")
         self.gst.grid(row=5, column=1, sticky="ew", pady=4, padx=(6, 0))
-        self.item_type = LabeledOption(inner, "Type (F fert · P pest · S seed · C crop · O other)", ITEM_TYPES, "O")
+        self.item_type = LabeledOption(inner, "Type F/P/S/C/O", ITEM_TYPES, "O")
         self.item_type.grid(row=6, column=0, sticky="ew", pady=4, padx=(0, 6))
-        self.pk = LabeledOption(inner, "Pakka / Kacha", PAKKA_KACHA, "P")
+        self.pk = LabeledOption(inner, "Pakka/Kacha", PAKKA_KACHA, "P")
         self.pk.grid(row=6, column=1, sticky="ew", pady=4, padx=(6, 0))
         primary_button(inner, "Add item", self.add_item).grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 0))
 
@@ -149,6 +149,24 @@ class ItemListPanel(ctk.CTkFrame):
         )
         self.search.pack(side="right")
         self.search.bind("<KeyRelease>", lambda e: self._filter())
+        self.cat_filter = ctk.CTkOptionMenu(
+            bar,
+            values=["All", "A", "B", "C", "D", "E"],
+            width=70,
+            height=34,
+            font=theme.font(13),
+            command=lambda _v: self._filter(),
+        )
+        self.cat_filter.set("All")
+        self.cat_filter.pack(side="right", padx=(0, 6))
+        self.state_filter = ctk.CTkSegmentedButton(
+            bar,
+            values=["All", "In stock", "Out / negative", "Expiring"],
+            command=lambda _v: self._filter(),
+            font=theme.font(12),
+        )
+        self.state_filter.set("All")
+        self.state_filter.pack(side="right", padx=(0, 10))
         self.table = DataTable(
             self,
             [
@@ -199,9 +217,30 @@ class ItemListPanel(ctk.CTkFrame):
         self._filter()
 
     def _filter(self) -> None:
-        term = self.search.get().strip().lower()
-        rows = [r for r in self._all if not term or term in f"{r[0]} {r[1]} {r[2]}".lower()]
-        self.table.set_rows(rows, f"{len(rows)} items · total stock value {money(sum(r[6] for r in rows))}")
+        import datetime as _dt
+
+        words = self.search.get().strip().lower().split()
+        cat = self.cat_filter.get()
+        state = self.state_filter.get()
+        soon = (_dt.date.today() + _dt.timedelta(days=60)).isoformat()
+
+        def keep(r) -> bool:
+            if words and not all(w in f"{r[0]} {r[1]} {r[2]}".lower() for w in words):
+                return False
+            if cat != "All" and r[12] != cat:
+                return False
+            if state == "In stock":
+                return r[4] > 0
+            if state == "Out / negative":
+                return r[4] <= 0
+            if state == "Expiring":
+                return r[4] > 0 and len(r[8]) == 10 and r[8][4] == "-" and r[8] <= soon
+            return True
+
+        rows = [r for r in self._all if keep(r)]
+        negative = sum(1 for r in rows if r[4] < 0)
+        note = f" · {negative} negative (see Reports → Data check)" if negative else ""
+        self.table.set_rows(rows, f"{len(rows)} items · total stock value {money(sum(r[6] for r in rows))}{note}")
 
 
 class ItemHistoryPanel(ctk.CTkFrame):

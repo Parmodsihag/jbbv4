@@ -143,6 +143,14 @@ class CustomerListPanel(ctk.CTkFrame):
         )
         self.cat_filter.set("All")
         self.cat_filter.pack(side="right", padx=(0, 6))
+        self.bal_filter = ctk.CTkSegmentedButton(
+            bar,
+            values=["All", "Owe us", "We owe", "Settled"],
+            command=lambda _v: self._filter(),
+            font=theme.font(12),
+        )
+        self.bal_filter.set("All")
+        self.bal_filter.pack(side="right", padx=(0, 10))
         self.table = DataTable(
             self,
             [
@@ -179,12 +187,20 @@ class CustomerListPanel(ctk.CTkFrame):
         self._filter()
 
     def _filter(self) -> None:
-        term = self.search.get().strip().lower()
+        words = self.search.get().strip().lower().split()
         cat = self.cat_filter.get()
+        bal = self.bal_filter.get()
         rows = [
             r
             for r in self._all
-            if (not term or term in f"{r[0]} {r[1]} {r[2]}".lower()) and (cat == "All" or r[6] == cat)
+            if all(w in f"{r[0]} {r[1]} {r[2]}".lower() for w in words)
+            and (cat == "All" or r[6] == cat)
+            and (
+                bal == "All"
+                or (bal == "Owe us" and r[3] > 0)
+                or (bal == "We owe" and r[3] < 0)
+                or (bal == "Settled" and r[3] == 0)
+            )
         ]
         receivable = sum(r[3] for r in rows if r[3] > 0)
         payable = -sum(r[3] for r in rows if r[3] < 0)
@@ -215,6 +231,8 @@ class LedgerPanel(ctk.CTkFrame):
         secondary_button(tools, "Export Excel", self.export, width=110).pack(side="left")
         secondary_button(tools, "Statement", self.statement, width=100).pack(side="left", padx=6)
         secondary_button(tools, "WhatsApp balance", self.whatsapp, width=140).pack(side="left", padx=6)
+        if self.ctx.can(Permission.MANAGE_KRAR):
+            secondary_button(tools, "Promise…", self.promise, width=90).pack(side="left", padx=6)
         secondary_button(tools, "↻", lambda: self.load(self.customer.id), width=40).pack(side="left", padx=6)
         if self.ctx.can(Permission.EDIT_RECORDS):
             secondary_button(tools, "Add entry", self.add_entry, width=100).pack(side="left", padx=(12, 6))
@@ -307,6 +325,24 @@ class LedgerPanel(ctk.CTkFrame):
         )
         if self.text_filter.get():
             self.table.filter(self.text_filter.get())
+
+    def promise(self) -> None:
+        """Record (or move) the date this customer promised to pay - a krar."""
+        if not self.customer:
+            return
+        c = self.customer
+        dates = self.ctx.krar.unsettled_dates(c.id)
+        current = f"  (currently {max(dates)})" if dates else ""
+        default = (dt.date.today() + dt.timedelta(days=7)).isoformat()
+        fields = [Field("date", f"Promised date{current}", default=default)]
+        if run_form(
+            self,
+            f"Promise from {c.name}",
+            fields,
+            lambda v: self.ctx.krar.add_or_update(c.id, v["date"], self.ctx.username),
+            "Save promise",
+        ):
+            self.ctx.toast("Promise saved - it shows on Karar and the dashboard", "success")
 
     def new_entry(self) -> None:
         if self.customer:
