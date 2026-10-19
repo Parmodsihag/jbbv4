@@ -763,6 +763,11 @@ class ReportsView(BaseView):
         self.title_label = ctk.CTkLabel(head, text="Choose a report", font=theme.font(17, "bold"))
         self.title_label.pack(side="left")
         secondary_button(head, "Export Excel", self.export, width=110).pack(side="right")
+        self.row_filter = ctk.CTkEntry(
+            head, placeholder_text="Filter rows…  (any words)", width=240, height=34, font=theme.font(13)
+        )
+        self.row_filter.pack(side="right", padx=8)
+        self.row_filter.bind("<KeyRelease>", lambda e: self.table.filter(self.row_filter.get()) if self.table else None)
         self.params_frame = ctk.CTkFrame(main, fg_color="transparent")
         self.params_frame.pack(fill="x", padx=12, pady=(0, 6))
         self.table_host = ctk.CTkFrame(main, fg_color="transparent")
@@ -824,6 +829,7 @@ class ReportsView(BaseView):
 
         if self.table:
             self.table.destroy()
+        self.row_filter.delete(0, "end")
         self.hint.pack_forget()
         self.table = DataTable(self.table_host, spec.columns, row_tags=spec.row_tags, on_double_click=self._open_row)
         self.table.pack(fill="both", expand=True)

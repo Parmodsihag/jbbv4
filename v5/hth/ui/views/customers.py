@@ -210,8 +210,11 @@ class LedgerPanel(ctk.CTkFrame):
 
         tools = ctk.CTkFrame(self, fg_color="transparent")
         tools.pack(fill="x", padx=12, pady=(0, 4))
+        if self.ctx.can(Permission.RECORD_SALE):
+            primary_button(tools, "New entry ▸", self.new_entry, width=110).pack(side="left", padx=(0, 6))
         secondary_button(tools, "Export Excel", self.export, width=110).pack(side="left")
         secondary_button(tools, "Statement", self.statement, width=100).pack(side="left", padx=6)
+        secondary_button(tools, "WhatsApp balance", self.whatsapp, width=140).pack(side="left", padx=6)
         secondary_button(tools, "↻", lambda: self.load(self.customer.id), width=40).pack(side="left", padx=6)
         if self.ctx.can(Permission.EDIT_RECORDS):
             secondary_button(tools, "Add entry", self.add_entry, width=100).pack(side="left", padx=(12, 6))
@@ -222,6 +225,22 @@ class LedgerPanel(ctk.CTkFrame):
             danger_button(tools, "Delete entry", self.delete_entry, width=100).pack(side="right", padx=(6, 0))
             danger_button(tools, "Delete customer", self.delete_customer, width=130).pack(side="right")
 
+        view_bar = ctk.CTkFrame(self, fg_color="transparent")
+        view_bar.pack(fill="x", padx=12, pady=(2, 0))
+        self.period = ctk.CTkSegmentedButton(
+            view_bar,
+            values=["All", "Current period", "This FY", "Last 90 days"],
+            command=lambda _v: self._apply_view(),
+            font=theme.font(12),
+        )
+        self.period.set("All")
+        self.period.pack(side="left")
+        self.text_filter = ctk.CTkEntry(
+            view_bar, placeholder_text="Find in ledger…", width=220, height=30, font=theme.font(12)
+        )
+        self.text_filter.pack(side="right")
+        self.text_filter.bind("<KeyRelease>", lambda e: self.table.filter(self.text_filter.get()))
+        self._rows: list = []
         self.table = DataTable(
             self,
             [
@@ -241,6 +260,9 @@ class LedgerPanel(ctk.CTkFrame):
         self.table.pack(fill="both", expand=True, padx=12, pady=(4, 12))
 
     def load(self, customer_id: int) -> None:
+        if self.customer is None or self.customer.id != customer_id:
+            self.period.set("All")
+            self.text_filter.delete(0, "end")
         self.customer = self.ctx.accounts.get_customer(customer_id)
         if self.customer is None:
             self.ctx.toast("Customer not found", "error")
@@ -251,24 +273,59 @@ class LedgerPanel(ctk.CTkFrame):
             text=f"#{self.customer.id}  {self.customer.name}   {self.customer.other_details}"
             f"   ·   category {self.customer.category}{lock}"
         )
-        rows = self.ctx.accounts.ledger(customer_id)
-        table_rows = [
-            (r.id, r.date, r.particulars, r.interest, r.debit, r.credit, r.balance, r.tag, r.type) for r in rows
-        ]
+        self._rows = self.ctx.accounts.ledger(customer_id)
         balance = self.ctx.accounts.get_balance(customer_id)
-        debit = sum(r.debit or 0 for r in rows)
-        credit = sum(r.credit or 0 for r in rows)
-        interest = sum(r.interest or 0 for r in rows if r.tag != "0")
-        self.table.set_rows(
-            table_rows,
-            f"{len(rows)} entries · debit {money(debit)} · credit {money(credit)}"
-            f" · interest (current period) {money(interest)}",
-        )
+        self._apply_view()
         self.balance_label.configure(
             text=f"Balance {money(balance)}",
             text_color=theme.color("danger") if balance > 0 else theme.color("success"),
         )
         self.ctx.status(f"{self.customer.name} · balance {money(balance)}")
+
+    def _apply_view(self) -> None:
+        """Show the period chosen above the table; totals are for what is shown."""
+        from hth.services.statements import financial_year_start
+
+        rows = self._rows
+        choice = self.period.get()
+        if choice == "Current period":
+            last = max((i for i, r in enumerate(rows) if r.tag == "0"), default=-1)
+            rows = rows[last + 1 :]
+        elif choice == "This FY":
+            start = financial_year_start()
+            rows = [r for r in rows if r.date >= start]
+        elif choice == "Last 90 days":
+            start = (dt.date.today() - dt.timedelta(days=90)).isoformat()
+            rows = [r for r in rows if r.date >= start]
+        debit = sum(r.debit or 0 for r in rows if r.tag != "0" or r.particulars not in ("Settled Amount", "Discount"))
+        credit = sum(r.credit or 0 for r in rows if r.tag != "0" or r.particulars not in ("Settled Amount", "Discount"))
+        interest = sum(r.interest or 0 for r in rows if r.tag != "0")
+        shown = f"{len(rows)} of {len(self._rows)} entries" if len(rows) != len(self._rows) else f"{len(rows)} entries"
+        self.table.set_rows(
+            [(r.id, r.date, r.particulars, r.interest, r.debit, r.credit, r.balance, r.tag, r.type) for r in rows],
+            f"{shown} · debit {money(debit)} · credit {money(credit)} · interest shown {money(interest)}",
+        )
+        if self.text_filter.get():
+            self.table.filter(self.text_filter.get())
+
+    def new_entry(self) -> None:
+        if self.customer:
+            self.ctx.navigate("sales", customer_id=self.customer.id)
+
+    def whatsapp(self) -> None:
+        if not self.customer:
+            return
+        r = self.ctx.reminders.balance_message(self.customer.id)
+        self.clipboard_clear()
+        self.clipboard_append(r.text)
+        if r.whatsapp_url:
+            import webbrowser
+
+            webbrowser.open(r.whatsapp_url)
+            self.ctx.audit.log("07", f"whatsapp balance to customer {r.customer_id}", self.ctx.username)
+            self.ctx.toast("WhatsApp opened - the message is also on the clipboard", "success")
+        else:
+            self.ctx.toast("No 10-digit mobile number in the account details - message copied instead", "warning")
 
     def export(self) -> None:
         if not self.customer:

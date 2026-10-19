@@ -89,7 +89,13 @@ class DataTable(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
 
         self.tree.bind("<Double-1>", self._dbl)
+        self.tree.bind("<Return>", self._dbl)
         self.tree.bind("<<TreeviewSelect>>", self._sel)
+        self.tree.bind("<Control-c>", lambda e: self.copy_selected())
+        self.tree.bind("<Control-C>", lambda e: self.copy_selected())
+        self.tree.bind("<Button-3>", self._context_menu)
+        self._filter_term = ""
+        self._all_rows: list[Sequence[Any]] = []
         self.restyle()
 
     # Styling -------------------------------------------------------------------------
@@ -104,14 +110,81 @@ class DataTable(ctk.CTkFrame):
 
     # Data ----------------------------------------------------------------------------
     def set_rows(self, rows: Sequence[Sequence[Any]], footer: str | None = None) -> None:
-        self._rows = [tuple(r) for r in rows]
+        self._all_rows = [tuple(r) for r in rows]
+        self._rows = self._apply_filter(self._all_rows)
         self._sort_col = None
         self._render()
         if footer is not None:
-            self.footer.configure(text=footer)
+            self._footer_text = footer
+            self._show_footer()
+
+    # Quick filter ---------------------------------------------------------------------
+    def filter(self, term: str) -> None:
+        """Show only rows whose visible text contains every word of ``term``."""
+        self._filter_term = (term or "").strip().lower()
+        self._rows = self._apply_filter(self._all_rows)
+        if self._sort_col is not None:
+            kind = self.columns[self._sort_col].kind
+            self._rows.sort(key=lambda r: _sort_key(r[self._sort_col], kind), reverse=self._sort_desc)
+        self._render()
+        self._show_footer()
+
+    def _apply_filter(self, rows: list[Sequence[Any]]) -> list[Sequence[Any]]:
+        words = self._filter_term.split()
+        if not words:
+            return list(rows)
+        out = []
+        for r in rows:
+            text = " ".join(_fmt(v, c.kind) for v, c in zip(r, self.columns, strict=False)).lower()
+            if all(w in text for w in words):
+                out.append(r)
+        return out
+
+    def _show_footer(self) -> None:
+        text = getattr(self, "_footer_text", "")
+        if self._filter_term:
+            text = f"showing {len(self._rows)} of {len(self._all_rows)} rows matching “{self._filter_term}”  ·  {text}"
+        self.footer.configure(text=text)
+
+    # Clipboard -------------------------------------------------------------------------
+    def _row_text(self, row: Sequence[Any]) -> str:
+        return "\t".join(_fmt(v, c.kind) for v, c in zip(row, self.columns, strict=False))
+
+    def copy_selected(self) -> str:
+        row = self.selected_row()
+        if row is None:
+            return "break"
+        self._to_clipboard(self._row_text(row))
+        return "break"
+
+    def copy_all(self) -> None:
+        header = "\t".join(c.title for c in self.columns)
+        self._to_clipboard("\n".join([header, *(self._row_text(r) for r in self._rows)]))
+
+    def _to_clipboard(self, text: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+    def _context_menu(self, event) -> None:
+        import tkinter as tk
+
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            self.tree.selection_set(iid)
+        menu = tk.Menu(self, tearoff=0)
+        if iid:
+            menu.add_command(label="Copy row", command=self.copy_selected)
+            if self._on_double_click:
+                menu.add_command(label="Open", command=lambda: self._dbl(None))
+        menu.add_command(label=f"Copy all {len(self._rows)} rows (paste into Excel / WhatsApp)", command=self.copy_all)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def set_footer(self, text: str) -> None:
-        self.footer.configure(text=text)
+        self._footer_text = text
+        self._show_footer()
 
     def clear(self) -> None:
         self.set_rows([], "")

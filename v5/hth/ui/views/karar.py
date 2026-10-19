@@ -177,6 +177,8 @@ class KararView(BaseView):
         if row is None:
             self.ctx.toast("Select a krar first", "warning")
             return None
+        if row[5] <= 0:  # nothing owed: a plain balance message, not "please pay"
+            return self.ctx.reminders.balance_message(row[7])
         return self.ctx.reminders.build(row[7], row[3])
 
     def _copy(self, text: str) -> None:
@@ -208,9 +210,12 @@ class KararView(BaseView):
         if not rows:
             self.ctx.toast("Nothing to copy", "warning")
             return
-        texts = [self.ctx.reminders.build(r[7], r[3]).text for r in rows]
+        owing = [r for r in rows if r[5] > 0]
+        skipped = len(rows) - len(owing)
+        texts = [self.ctx.reminders.build(r[7], r[3]).text for r in owing]
         self._copy("\n\n".join(texts))
-        self.ctx.toast(f"{len(texts)} reminders copied", "success")
+        note = f" ({skipped} with nothing owed left out)" if skipped else ""
+        self.ctx.toast(f"{len(texts)} reminders copied{note}", "success")
 
     def delete_krar(self) -> None:
         row = self.table.selected_row()

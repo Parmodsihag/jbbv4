@@ -48,8 +48,13 @@ class SalesView(BaseView):
         inner = ctk.CTkScrollableFrame(form, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
-        self.date = DateField(inner)
-        self.date.pack(fill="x", pady=3)
+        top_row = ctk.CTkFrame(inner, fg_color="transparent")
+        top_row.pack(fill="x", pady=3)
+        top_row.grid_columnconfigure((0, 1), weight=1)
+        self.date = DateField(top_row, "Date  (Alt+Up / Alt+Down)")
+        self.date.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.tag = LabeledOption(top_row, "Tag", TAG_CHOICES, Tag.NORMAL.label)
+        self.tag.grid(row=0, column=1, sticky="ew")
 
         acc = LabeledWidget(inner, "Account  (customer, farmer or buyer)")
         acc.pack(fill="x", pady=3)
@@ -81,7 +86,7 @@ class SalesView(BaseView):
         )
         self.stock_label.pack(fill="x")
 
-        row = ctk.CTkFrame(inner, fg_color="transparent")
+        self._qty_row = row = ctk.CTkFrame(inner, fg_color="transparent")
         row.pack(fill="x", pady=3)
         row.grid_columnconfigure(0, weight=3)
         row.grid_columnconfigure(1, weight=2)
@@ -116,9 +121,6 @@ class SalesView(BaseView):
         )
         self.crop_hint.pack(fill="x", pady=(4, 0))
         # (packed on demand by _set_crop_mode)
-
-        self.tag = LabeledOption(inner, "Tag", TAG_CHOICES, Tag.NORMAL.label)
-        self.tag.pack(fill="x", pady=3)
 
         # Money account (cash / bank / UPI) - only for entries that move money, not stock
         self.money = LabeledOption(inner, "Money account  (where the cash goes / comes from)", ["- none -"], "- none -")
@@ -192,8 +194,12 @@ class SalesView(BaseView):
         top.bind("<Control-Shift-Return>", lambda e: self._shortcut("M"))
         top.bind("<Control-z>", lambda e: self.undo_last() if self.winfo_ismapped() else None, add="+")
 
-        right = Card(self, "Today's entries")
-        right.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=4)
+        side = ctk.CTkFrame(self, fg_color="transparent")
+        side.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=4)
+        self.snapshot = AccountSnapshot(side, self.ctx)
+        self.snapshot.pack(fill="x", pady=(0, 8))
+        right = Card(side, "Today's entries")
+        right.pack(fill="both", expand=True)
         undo_bar = ctk.CTkFrame(right, fg_color="transparent")
         undo_bar.pack(fill="x", padx=12)
         self.undo_label = ctk.CTkLabel(
@@ -222,18 +228,24 @@ class SalesView(BaseView):
     def _items(self):
         return [(i.id, i.display) for i in self.ctx.inventory.list_items()]
 
-    def on_show(self, **kwargs) -> None:
+    def on_show(self, customer_id: int | None = None, **kwargs) -> None:
         self.account.refresh()
         self.item.refresh()
         self._refresh_money_accounts()
         self._load_recent()
         if self._item is None:
             self._set_money_mode(True)
-        self.after(100, self.account.entry.focus_set)
+        if customer_id is not None:
+            self.account.set(customer_id)
+            self._show_balance(customer_id)
+            self.after(100, self.item.entry.focus_set)
+        else:
+            self.after(100, self.account.entry.focus_set)
 
     def on_theme_change(self) -> None:
         self.recent.restyle()
         self.lines_table.restyle()
+        self.snapshot.table.restyle()
 
     def on_day_change(self) -> None:
         super().on_day_change()
@@ -263,6 +275,7 @@ class SalesView(BaseView):
             text=f"Current balance: {money(abs(bal))}  ({state})",
             text_color=theme.color("danger") if bal > 0 else theme.color("success"),
         )
+        self.snapshot.show(customer_id, bal)
 
     def _refresh_money_accounts(self) -> None:
         flow = money_flow_handler(self.ctx.db)
@@ -286,7 +299,7 @@ class SalesView(BaseView):
 
     def _set_money_mode(self, on: bool) -> None:
         if on and not self.money.winfo_manager():
-            self.money.pack(fill="x", pady=3, after=self.tag)
+            self.money.pack(fill="x", pady=3, after=self._qty_row)
         elif not on and self.money.winfo_manager():
             self.money.pack_forget()
 
@@ -296,7 +309,7 @@ class SalesView(BaseView):
 
     def _set_crop_mode(self, on: bool) -> None:
         if on and not self.crop_box.winfo_manager():
-            self.crop_box.pack(fill="x", pady=4, before=self.tag)
+            self.crop_box.pack(fill="x", pady=4, after=self._qty_row)
             self.tag.set(Tag.NO_INTEREST.label)
         elif not on and self.crop_box.winfo_manager():
             self.crop_box.pack_forget()
@@ -593,3 +606,81 @@ class SalesView(BaseView):
         self._last = None
         self.undo_button.configure(state="disabled")
         self.undo_label.configure(text="")
+
+
+class AccountSnapshot(Card):
+    """The picked account at a glance: balance, promise, last payment, recent entries."""
+
+    def __init__(self, master, ctx):
+        super().__init__(master, "Account")
+        self.ctx = ctx
+        self.customer_id: int | None = None
+        head = ctk.CTkFrame(self, fg_color="transparent")
+        head.pack(fill="x", padx=18)
+        self.name = ctk.CTkLabel(
+            head, text="Pick an account to see its balance and recent entries", font=theme.font(13), anchor="w"
+        )
+        self.name.pack(side="left", fill="x", expand=True)
+        self.open_button = secondary_button(head, "Open ledger", self._open, width=110, height=30)
+        self.open_button.pack(side="right")
+        self.open_button.configure(state="disabled")
+        self.facts = ctk.CTkLabel(
+            self,
+            text="",
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+            anchor="w",
+            justify="left",
+            wraplength=620,
+        )
+        self.facts.pack(fill="x", padx=18, pady=(2, 4))
+        self.table = DataTable(
+            self,
+            [
+                Column("date", "Date", 92),
+                Column("what", "Particulars", 240, stretch=True),
+                Column("debit", "Debit", 100, "e", "money"),
+                Column("credit", "Credit", 100, "e", "money"),
+                Column("balance", "Balance", 110, "e", "money"),
+            ],
+            height=4,
+            row_tags=lambda r: ["muted"] if r[5] == "0" else [],
+        )
+        self.table.pack(fill="x", padx=12, pady=(0, 12))
+
+    def _open(self) -> None:
+        if self.customer_id is not None:
+            self.ctx.navigate("customers", customer_id=self.customer_id)
+
+    def show(self, customer_id: int, balance: float | None = None) -> None:
+        import datetime as dt
+
+        c = self.ctx.accounts.get_customer(customer_id)
+        if c is None:
+            return
+        self.customer_id = customer_id
+        self.open_button.configure(state="normal")
+        bal = self.ctx.accounts.get_balance(customer_id) if balance is None else balance
+        state = "owes us" if bal > 0 else ("we owe them" if bal < 0 else "settled")
+        self.name.configure(
+            text=f"#{c.id}  {c.name}   {c.other_details}   ·   cat {c.category}", font=theme.font(13, "bold")
+        )
+        rows = self.ctx.accounts.ledger(customer_id)
+        facts = [f"Balance {money(abs(bal))} ({state})"]
+        dates = self.ctx.krar.unsettled_dates(customer_id)
+        if dates:
+            promised = max(dates)
+            days = (dt.date.fromisoformat(promised) - dt.date.today()).days
+            when = f"overdue {-days} days" if days < 0 else ("today" if days == 0 else f"in {days} days")
+            facts.append(f"promised {promised} ({when})")
+        paid = [r for r in rows if r.type == "M" and r.particulars not in ("Settled Amount", "Discount")]
+        facts.append(f"last payment {paid[-1].date} ({money(paid[-1].amount)})" if paid else "no payment yet")
+        facts.append(f"{len(rows)} entries")
+        self.facts.configure(
+            text="   ·   ".join(facts), text_color=theme.color("danger") if bal > 0 else theme.color("muted")
+        )
+        recent = rows[-5:][::-1]
+        self.table.set_rows(
+            [(r.date, r.particulars, r.debit, r.credit, r.balance, r.tag) for r in recent],
+            "newest first",
+        )

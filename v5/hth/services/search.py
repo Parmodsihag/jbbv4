@@ -32,11 +32,16 @@ class SearchService:
         like = f"%{term}%"
         kinds = kinds or {"customer", "item", "bill"}
         hits: list[SearchHit] = []
+        # every word must appear somewhere ("ram rohtak" finds RAM KUMAR / ROHTAK); an exact id
+        # or a name starting with the term comes first
+        words = term.split()
+        word_clause = " AND ".join("(name || ' ' || other_details) LIKE ?" for _ in words)
         if "customer" in kinds:
             for r in self.db.fetchall(
                 "SELECT id, name, other_details, category FROM customers "
-                "WHERE name LIKE ? OR other_details LIKE ? OR CAST(id AS TEXT) = ? ORDER BY name LIMIT ?",
-                (like, like, term, limit),
+                f"WHERE ({word_clause}) OR CAST(id AS TEXT) = ? "
+                "ORDER BY CAST(id AS TEXT) = ? DESC, name LIKE ? DESC, name LIMIT ?",
+                (*[f"%{w}%" for w in words], term, term, f"{term}%", limit),
             ):
                 hits.append(
                     SearchHit(
