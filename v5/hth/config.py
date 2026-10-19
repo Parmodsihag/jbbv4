@@ -95,6 +95,9 @@ def copy_previous_version(source: Path, dest: Path) -> Path:
             src.backup(dst)
         finally:
             dst.close()
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     finally:
         src.close()
     tmp.replace(dest)  # only a complete copy ever becomes hth.db

@@ -105,3 +105,17 @@ def test_crop_ledger_rows_are_changed_in_crop_trade_only(accounts, inventory, sa
     with pytest.raises(ValidationError, match="crop purchase lot"):
         accounts.delete_transaction(tx_id, "admin")
     assert accounts.get_transaction(tx_id).amount == 2500
+
+
+def test_failed_copy_of_v4_creates_nothing(tmp_path):
+    from hth.config import Settings, copy_previous_version
+
+    bad = tmp_path / "v4" / "hth.db"
+    bad.parent.mkdir()
+    bad.write_bytes(b"this is not a database" * 50)
+    settings = Settings(tmp_path / "v5")
+    settings.ensure_dirs()
+    with pytest.raises(Exception, match="not a database"):  # noqa: B017 - sqlite3.DatabaseError
+        copy_previous_version(bad, settings.db_path)
+    assert not settings.db_path.exists()  # so the next start tries again
+    assert not list(settings.data_dir.glob("*.copying"))
