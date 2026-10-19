@@ -29,6 +29,8 @@ def _item(row) -> Item:
         pakka_kacha=str(row["pakka_kacha"]),
         category=row["category"] if "category" in row.keys() else "C",
         category_locked=bool(row["category_locked"]) if "category_locked" in row.keys() else False,
+        name_hi=row["name_hi"] if "name_hi" in row.keys() else "",
+        hi_manual=bool(row["hi_manual"]) if "hi_manual" in row.keys() else False,
     )
 
 
@@ -106,9 +108,11 @@ class InventoryService:
         source = (source or "").strip().upper()
 
         with self.db.connect():
+            from hth.i18n.translit import to_hindi
+
             item_id = self.db.execute(
                 "INSERT INTO items (name, stock_value, last_value, unit, batch, expiry_date, gst_rate,"
-                " item_type, pakka_kacha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " item_type, pakka_kacha, name_hi) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     name,
                     stock_value_f,
@@ -119,6 +123,7 @@ class InventoryService:
                     gst_f,
                     item_type,
                     pakka_kacha,
+                    to_hindi(name, item=True),
                 ),
             )
             # v3 always wrote an opening stock row (received = opening balance, description = source)
@@ -159,8 +164,14 @@ class InventoryService:
         if not fields:
             return
         sets = ", ".join(f"{k} = ?" for k in fields)
+        params = list(fields.values())
+        if "name" in fields:  # follow a rename unless the Hindi name was corrected by hand
+            from hth.i18n.translit import to_hindi
+
+            sets += ", name_hi = CASE WHEN hi_manual = 1 THEN name_hi ELSE ? END"
+            params.append(to_hindi(fields["name"], item=True))
         with self.db.connect():
-            self.db.execute(f"UPDATE items SET {sets} WHERE id = ?", (*fields.values(), item_id))
+            self.db.execute(f"UPDATE items SET {sets} WHERE id = ?", (*params, item_id))
             self.audit.log(AuditCode.MODIFY, f"item {item_id}: {fields}", username)
 
     def delete_item(self, item_id: int, username: str) -> None:

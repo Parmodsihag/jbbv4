@@ -43,6 +43,9 @@ def _customer(row) -> Customer:
         other_details=row["other_details"],
         category=row["category"] if "category" in keys else "C",
         category_locked=bool(row["category_locked"]) if "category_locked" in keys else False,
+        name_hi=row["name_hi"] if "name_hi" in keys else "",
+        details_hi=row["details_hi"] if "details_hi" in keys else "",
+        hi_manual=bool(row["hi_manual"]) if "hi_manual" in keys else False,
     )
 
 
@@ -163,9 +166,11 @@ class AccountsService:
             category = default_cat["value"].upper() if default_cat else "C"
             if category not in CATEGORIES or category == "E":
                 category = "C"
+            from hth.i18n.translit import to_hindi
+
             customer_id = self.db.execute(
-                "INSERT INTO customers (name, other_details, category) VALUES (?, ?, ?)",
-                (name, other_details, category),
+                "INSERT INTO customers (name, other_details, category, name_hi, details_hi) VALUES (?, ?, ?, ?, ?)",
+                (name, other_details, category, to_hindi(name), to_hindi(other_details)),
             )
             if amount > 0:
                 self.add_transaction(
@@ -189,10 +194,15 @@ class AccountsService:
         name = (name or "").strip().upper()
         if not name:
             raise ValidationError("Customer name is required.")
+        from hth.i18n.translit import to_hindi
+
+        details = (other_details or "").strip().upper()
         with self.db.connect():
             self.db.execute(
-                "UPDATE customers SET name = ?, other_details = ? WHERE id = ?",
-                (name, (other_details or "").strip().upper(), customer_id),
+                "UPDATE customers SET name = ?, other_details = ?, "
+                "name_hi = CASE WHEN hi_manual = 1 THEN name_hi ELSE ? END, "
+                "details_hi = CASE WHEN hi_manual = 1 THEN details_hi ELSE ? END WHERE id = ?",
+                (name, details, to_hindi(name), to_hindi(details), customer_id),
             )
             self.audit.log(AuditCode.MODIFY, f"customer {customer_id}: {name} | {other_details}", username)
 

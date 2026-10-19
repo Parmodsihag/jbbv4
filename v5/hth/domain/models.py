@@ -25,10 +25,17 @@ class Customer:
     other_details: str
     category: str = "C"
     category_locked: bool = False
+    name_hi: str = ""
+    details_hi: str = ""
+    hi_manual: bool = False
 
     @property
     def display(self) -> str:
         return f"{self.id} {self.name} {self.other_details}".strip()
+
+    @property
+    def display_hi(self) -> str:
+        return f"{self.id} {self.name_hi or self.name} {self.details_hi or self.other_details}".strip()
 
 
 @dataclass(frozen=True)
@@ -78,10 +85,16 @@ class Item:
     pakka_kacha: str
     category: str = "C"
     category_locked: bool = False
+    name_hi: str = ""
+    hi_manual: bool = False
 
     @property
     def display(self) -> str:
         return f"{self.id} {self.name} {self.batch}".strip()
+
+    @property
+    def display_hi(self) -> str:
+        return f"{self.id} {self.name_hi or self.name} {self.batch}".strip()
 
 
 @dataclass(frozen=True)
