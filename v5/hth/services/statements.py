@@ -12,6 +12,7 @@ from html import escape
 from pathlib import Path
 
 from hth.db.connection import Database
+from hth.domain import numbers
 from hth.domain.constants import ANNUAL_INTEREST_RATE_PERCENT, DATE_FMT
 from hth.domain.interest import parse_date
 from hth.domain.models import LedgerRow
@@ -37,7 +38,7 @@ class Statement:
 
 
 def _money(v: float | None) -> str:
-    return "" if v is None else f"{v:,.2f}"
+    return "" if v is None else numbers.amount(v)
 
 
 class StatementService:

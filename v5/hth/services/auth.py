@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import logging
 import secrets
+import time
 
 from hth.db.connection import Database
 from hth.domain.constants import AuditCode
@@ -17,6 +18,12 @@ log = logging.getLogger(__name__)
 
 PBKDF2_ITERATIONS = 200_000
 MIN_PASSWORD_LENGTH = 4
+MAX_FAILED_ATTEMPTS = 5  # then the username is locked out for LOCKOUT_SECONDS (doubling)
+LOCKOUT_SECONDS = 30
+
+# username (lower case) -> (consecutive failures, monotonic time the lockout ends).
+# Process-wide on purpose: every AuthService instance shares it.
+_failures: dict[str, tuple[int, float]] = {}
 
 # (username, password, full name, role).  Change these passwords after first login.
 DEFAULT_USERS: list[tuple[str, str, str, str]] = [
@@ -67,14 +74,40 @@ class AuthService:
         row = self.db.fetchone("SELECT * FROM users WHERE id = ?", (user_id,))
         return _row_to_user(row) if row else None
 
-    def authenticate(self, username: str, password: str) -> User | None:
+    def verify(self, username: str, password: str) -> User | None:
+        """The active user with these credentials, or None.  No audit entry, no lockout."""
         row = self.db.fetchone("SELECT * FROM users WHERE username = ?", (username.strip(),))
         if row is None or not row["is_active"]:
             return None
         computed, _ = self.hash_password(password, row["salt"])
         if not hmac.compare_digest(computed, row["password_hash"]):
             return None
-        user = _row_to_user(row)
+        return _row_to_user(row)
+
+    @staticmethod
+    def lockout_remaining(username: str) -> int:
+        """Seconds until ``username`` may try again (0 = now)."""
+        _count, until = _failures.get(username.strip().lower(), (0, 0.0))
+        return max(0, int(until - time.monotonic() + 0.999))
+
+    def authenticate(self, username: str, password: str) -> User | None:
+        """Sign-in: like :meth:`verify`, plus the audit log and a lockout after repeated failures.
+
+        Raises AuthError while the username is locked out."""
+        key = username.strip().lower()
+        wait = self.lockout_remaining(key)
+        if wait:
+            raise AuthError(f"Too many failed attempts - try again in {wait} s.")
+        user = self.verify(username, password)
+        if user is None:
+            count = _failures.get(key, (0, 0.0))[0] + 1
+            until = 0.0
+            if count >= MAX_FAILED_ATTEMPTS:
+                until = time.monotonic() + LOCKOUT_SECONDS * 2 ** (count - MAX_FAILED_ATTEMPTS)
+            _failures[key] = (count, until)
+            self.audit.log(AuditCode.LOGIN, f"failed login for {username.strip()!r} (attempt {count})", "system")
+            return None
+        _failures.pop(key, None)
         self.audit.log(AuditCode.LOGIN, f"login {user.username}", username=user.username)
         return user
 
@@ -106,7 +139,7 @@ class AuthService:
         self.audit.log(AuditCode.USER, f"password changed for {user.username if user else user_id}", actor)
 
     def change_own_password(self, user: User, old_password: str, new_password: str) -> None:
-        if self.authenticate(user.username, old_password) is None:
+        if self.verify(user.username, old_password) is None:
             raise AuthError("Current password is incorrect.")
         self.set_password(user.id, new_password, actor=user.username)
 

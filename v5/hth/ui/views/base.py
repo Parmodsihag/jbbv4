@@ -36,6 +36,18 @@ class BaseView(ctk.CTkFrame):
     def on_theme_change(self) -> None:  # override
         pass
 
+    def on_day_change(self) -> None:
+        """Called once after midnight while the app is open: untouched date fields move to
+        the new day.  Override to also reload day-based data (call super())."""
+        from hth.ui.widgets.forms import DateField
+
+        stack = list(self.winfo_children())
+        while stack:
+            w = stack.pop()
+            if isinstance(w, DateField):
+                w.refresh_today()
+            stack.extend(w.winfo_children())
+
     def destroy(self) -> None:
         self._alive = False
         super().destroy()

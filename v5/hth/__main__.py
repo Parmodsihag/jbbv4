@@ -15,7 +15,7 @@ def main() -> int:
     settings = get_settings()
     setup_logging(settings.log_dir)
     db = Database(settings.db_path)
-    initialize(db)
+    initialize(db, settings.backup_dir)
     AuthService(db).ensure_default_users()
     from hth.services.backup import BackupService
 

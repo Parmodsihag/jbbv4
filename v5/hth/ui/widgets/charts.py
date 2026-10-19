@@ -23,7 +23,7 @@ class ChartCard(ctk.CTkFrame):
         self.body = ctk.CTkFrame(self, fg_color="transparent", height=height)
         self.body.pack(fill="both", expand=True, padx=6, pady=(4, 6))
         self.body.pack_propagate(False)
-        self._canvas: FigureCanvasTkAgg | None = None
+        self._figure_canvas: FigureCanvasTkAgg | None = None
         self._builder: Builder | None = None
         self.empty_label: ctk.CTkLabel | None = None
 
@@ -41,10 +41,10 @@ class ChartCard(ctk.CTkFrame):
         self.empty_label.pack(expand=True)
 
     def _dispose(self) -> None:
-        if self._canvas is not None:
-            self._canvas.get_tk_widget().destroy()
-            self._canvas.figure.clear()
-            self._canvas = None
+        if self._figure_canvas is not None:
+            self._figure_canvas.get_tk_widget().destroy()
+            self._figure_canvas.figure.clear()
+            self._figure_canvas = None
         if self.empty_label is not None:
             self.empty_label.destroy()
             self.empty_label = None
@@ -61,9 +61,9 @@ class ChartCard(ctk.CTkFrame):
             ax.text(0.5, 0.5, f"chart error: {exc}", ha="center", va="center", fontsize=8)
         style_axes(ax)
         fig.tight_layout(pad=1.2)
-        self._canvas = FigureCanvasTkAgg(fig, master=self.body)
-        self._canvas.draw()
-        self._canvas.get_tk_widget().pack(fill="both", expand=True)
+        self._figure_canvas = FigureCanvasTkAgg(fig, master=self.body)
+        self._figure_canvas.draw()
+        self._figure_canvas.get_tk_widget().pack(fill="both", expand=True)
 
 
 def style_axes(ax) -> None:
@@ -79,3 +79,16 @@ def style_axes(ax) -> None:
         ax.spines[spine].set_color(muted)
     ax.grid(axis="y", color=muted, alpha=0.15, linewidth=0.6)
     ax.set_axisbelow(True)
+
+
+def compact_axis(ax, which: str = "y") -> None:
+    """Tick labels as 1.5 L / 2 Cr (or K / M) instead of matplotlib's 1e6 offset."""
+    from matplotlib.ticker import FuncFormatter
+
+    from hth.ui.format import compact_money
+
+    def fmt(v, _pos):
+        return "0" if v == 0 else compact_money(v).replace(".00", "")
+
+    axis = ax.yaxis if which == "y" else ax.xaxis
+    axis.set_major_formatter(FuncFormatter(fmt))

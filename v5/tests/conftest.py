@@ -10,6 +10,15 @@ from hth.services.reports import ReportsService
 from hth.services.sales import SalesService
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_lockout():
+    from hth.services import auth as auth_module
+
+    auth_module._failures.clear()
+    yield
+    auth_module._failures.clear()
+
+
 @pytest.fixture
 def db():
     database = Database(":memory:")

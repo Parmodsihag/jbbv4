@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import sqlite3
 from collections.abc import Iterable
 
 from hth.db.connection import Database
@@ -10,7 +11,7 @@ from hth.domain.constants import CATEGORIES, DATE_FMT, AuditCode
 from hth.domain.interest import parse_date
 from hth.domain.models import Item, ItemSummary, ItemTransaction
 from hth.domain.units import UnitError, convert, normalize
-from hth.services.accounts import ValidationError, _validate_date
+from hth.services.accounts import ValidationError, _count_if_table, _validate_date
 from hth.services.audit import AuditService
 
 
@@ -164,8 +165,18 @@ class InventoryService:
 
     def delete_item(self, item_id: int, username: str) -> None:
         item = self.get_item(item_id)
+        lots = _count_if_table(self.db, "crop_lots", "item_id = ?", item_id)
+        sold = _count_if_table(self.db, "crop_sales", "item_id = ?", item_id)
+        if lots or sold:
+            raise ValidationError(
+                f"{item.name if item else 'This item'} has {lots} crop lot(s) and {sold} crop sale(s). "
+                "Delete them in Crop Trade first, or mark the item E (discontinued) instead."
+            )
         with self.db.connect():
-            self.db.execute("DELETE FROM items WHERE id = ?", (item_id,))
+            try:
+                self.db.execute("DELETE FROM items WHERE id = ?", (item_id,))
+            except sqlite3.IntegrityError as exc:
+                raise ValidationError(f"Cannot delete: other records still use this item ({exc}).") from exc
             self.audit.log(AuditCode.DELETE, f"item {item_id} {item.name if item else ''}", username)
 
     # Stock movements --------------------------------------------------------------

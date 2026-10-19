@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from urllib.parse import quote
 
 from hth.db.connection import Database
+from hth.domain import numbers
 from hth.domain.interest import parse_date
 from hth.services.accounts import AccountsService
 from hth.services.company import CompanyService
@@ -76,7 +77,7 @@ class ReminderService:
         shop = self.company.profile()
         text = self.template().format(
             name=c.name.title(),
-            amount=f"{balance:,.2f}",
+            amount=numbers.amount(balance),
             date=parse_date(promised).strftime("%d-%m-%Y"),
             days=max(0, days),
             shop=shop.name.title(),

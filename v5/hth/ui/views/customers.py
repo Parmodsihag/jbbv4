@@ -420,6 +420,10 @@ class LedgerPanel(ctk.CTkFrame):
             "Delete customer",
             f"Delete #{c.id} {c.name} and ALL its ledger entries?\nThis cannot be undone.",
         ):
-            self.ctx.accounts.delete_customer(c.id, self.ctx.username)
+            try:
+                self.ctx.accounts.delete_customer(c.id, self.ctx.username)
+            except ValidationError as exc:
+                self.ctx.toast(str(exc), "error")
+                return
             self.ctx.toast(f"Customer {c.name} deleted", "success")
             self.view.show_list()

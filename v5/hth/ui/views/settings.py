@@ -31,16 +31,59 @@ class SettingsView(BaseView):
         scroll.pack(fill="both", expand=True)
         s = self.ctx.settings
 
-        look = Card(scroll, "Appearance")
+        look = Card(scroll, "Appearance & security")
         look.pack(fill="x", padx=4, pady=4)
+        prefs = self.ctx.prefs
+        can_edit = self.ctx.can(Permission.MANAGE_SETTINGS)
         row = ctk.CTkFrame(look, fg_color="transparent")
-        row.pack(fill="x", padx=18, pady=(4, 16))
-        ctk.CTkLabel(row, text="Theme", font=theme.font(13)).pack(side="left", padx=(0, 12))
+        row.pack(fill="x", padx=18, pady=(4, 6))
+        ctk.CTkLabel(row, text="Theme", font=theme.font(13), width=120, anchor="w").pack(side="left")
         self.mode = ctk.CTkSegmentedButton(
             row, values=["Light", "Dark", "System"], command=self._set_mode, font=theme.font(13)
         )
         self.mode.set(self.ctx.app.appearance.title())
         self.mode.pack(side="left")
+        ctk.CTkLabel(
+            row, text="   remembered for next time", font=theme.font(11), text_color=theme.color("muted")
+        ).pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=6)
+        ctk.CTkLabel(row, text="Numbers", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        self.number_style = ctk.CTkSegmentedButton(
+            row,
+            values=["Indian  12,34,567.00", "International  1,234,567.00"],
+            command=self._set_number_style,
+            font=theme.font(13),
+            state="normal" if can_edit else "disabled",
+        )
+        self.number_style.set(
+            "Indian  12,34,567.00" if prefs.number_style() == "indian" else "International  1,234,567.00"
+        )
+        self.number_style.pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=(6, 16))
+        ctk.CTkLabel(row, text="Auto-lock", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        lock_choices = ["Never", "2 min", "5 min", "10 min", "15 min", "30 min", "60 min"]
+        current = prefs.lock_minutes()
+        self.lock_menu = ctk.CTkOptionMenu(
+            row,
+            values=lock_choices,
+            width=110,
+            height=32,
+            font=theme.font(13),
+            command=self._set_lock,
+            state="normal" if can_edit else "disabled",
+        )
+        self.lock_menu.set(f"{current} min" if f"{current} min" in lock_choices else "Never")
+        self.lock_menu.pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text="   after this much idle time the screen locks; work in progress stays.  Ctrl+L locks now.",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
+        ).pack(side="left")
 
         acct = Card(scroll, "My account")
         acct.pack(fill="x", padx=4, pady=4)
@@ -332,6 +375,18 @@ class SettingsView(BaseView):
 
     def _set_mode(self, value: str) -> None:
         self.ctx.app.apply_theme(value.lower())
+
+    def _set_number_style(self, value: str) -> None:
+        style = "indian" if value.startswith("Indian") else "international"
+        self.ctx.prefs.set_number_style(style)
+        self.ctx.audit.log("09", f"number style -> {style}", self.ctx.username)
+        self.ctx.toast("Number style saved - screens show it as they reload", "success")
+
+    def _set_lock(self, value: str) -> None:
+        minutes = 0 if value == "Never" else int(value.split()[0])
+        self.ctx.prefs.set_lock_minutes(minutes)
+        self.ctx.audit.log("09", f"auto-lock -> {value}", self.ctx.username)
+        self.ctx.toast(f"Auto-lock: {value}", "success")
 
     def change_password(self) -> None:
         u = self.ctx.user

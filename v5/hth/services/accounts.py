@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -55,6 +56,14 @@ def _tx(row) -> Transaction:
         type=row["type"],
         tag=str(row["tag"]),
     )
+
+
+def _count_if_table(db: Database, table: str, where: str, *params) -> int:
+    """Rows in an optional module table (0 when the module's tables do not exist)."""
+    if db.fetchone("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)) is None:
+        return 0
+    row = db.fetchone(f"SELECT COUNT(*) AS n FROM {table} WHERE {where}", params)
+    return int(row["n"]) if row else 0
 
 
 def _validate_date(value: str) -> str:
@@ -189,8 +198,17 @@ class AccountsService:
 
     def delete_customer(self, customer_id: int, username: str) -> None:
         customer = self.get_customer(customer_id)
+        lots = _count_if_table(self.db, "crop_lots", "farmer_id = ?", customer_id)
+        if lots:
+            raise ValidationError(
+                f"{customer.name if customer else 'This account'} sold us {lots} crop lot(s). "
+                "Delete those lots in Crop Trade first, or keep the account."
+            )
         with self.db.connect():
-            self.db.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+            try:
+                self.db.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+            except sqlite3.IntegrityError as exc:
+                raise ValidationError(f"Cannot delete: other records still use this account ({exc}).") from exc
             self.audit.log(
                 AuditCode.DELETE,
                 f"customer {customer_id} {customer.name if customer else ''}",
@@ -247,9 +265,10 @@ class AccountsService:
         username: str,
     ) -> None:
         date = _validate_date(date)
-        amount_f = _validate_amount(amount)
-        tx_type = _validate_type(tx_type)
         tag = _validate_tag(tag)
+        # settlement rows (Settled Amount / Discount) are legitimately negative
+        amount_f = _validate_amount(amount, allow_negative=tag == Tag.SETTLE.value)
+        tx_type = _validate_type(tx_type)
         with self.db.connect():
             self.db.execute(
                 "UPDATE transactions SET date=?, description=?, amount=?, type=?, tag=? WHERE id=?",
@@ -350,6 +369,29 @@ class AccountsService:
         for cid in known:
             b, p, i = acc.get(cid, (0.0, 0.0, 0.0))
             out[cid] = PeriodTotals(round(b, 2), round(p, 2), round(i, 2), last.get(cid), round(p + i, 2))
+        return out
+
+    def current_period_entries(
+        self, customer_ids: Iterable[int] | None = None
+    ) -> dict[int, list[tuple[str, float, str, str]]]:
+        """{customer_id: [(date, amount, type, tag), ...]} after each customer's last settlement,
+        by date then id - :meth:`current_period_transactions` for many customers in one query."""
+        where, params = "", ()
+        if customer_ids is not None:
+            ids = sorted({int(i) for i in customer_ids})
+            if not ids:
+                return {}
+            where, params = f"WHERE customer_id IN ({','.join('?' * len(ids))}) ", tuple(ids)
+        out: dict[int, list[tuple[str, float, str, str]]] = {}
+        for cid, date, amount, tx_type, tag in self.db.fetchall(
+            f"SELECT customer_id, date, amount, type, tag FROM transactions {where}ORDER BY customer_id, date, id",
+            params,
+        ):
+            tag = str(tag)
+            if tag == Tag.SETTLE.value:
+                out[cid] = []
+                continue
+            out.setdefault(cid, []).append((date, float(amount), tx_type, tag))
         return out
 
     def balances(self, as_of: dt.date | None = None, customer_ids: Iterable[int] | None = None) -> dict[int, float]:

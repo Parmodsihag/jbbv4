@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import tkinter as tk
 from collections.abc import Sequence
 
@@ -64,8 +65,18 @@ class LabeledEntry(ctk.CTkFrame):
 
 
 class DateField(LabeledEntry):
+    """Date entry that defaults to today.
+
+    While it still shows the date it was auto-filled with, :meth:`refresh_today` moves it to
+    the new day - so a screen left open overnight does not book the morning's entries on
+    yesterday.  A date the user typed is left alone.
+    """
+
     def __init__(self, master, label: str = "Date", default: str | None = None, **kwargs):
+        self._auto_value = today_str() if default is None else None
         super().__init__(master, label, default=default or today_str(), **kwargs)
+        self.entry.bind("<Alt-Down>", lambda e: self._step(-1))
+        self.entry.bind("<Alt-Up>", lambda e: self._step(1))
 
     def get(self) -> str:
         value = super().get()
@@ -75,7 +86,24 @@ class DateField(LabeledEntry):
             raise ValidationError(f"Invalid date '{value}' (use YYYY-MM-DD).") from exc
 
     def set_today(self) -> None:
-        self.set(today_str())
+        self._auto_value = today_str()
+        self.set(self._auto_value)
+
+    def refresh_today(self) -> bool:
+        """Roll an untouched auto-filled date forward to today; True if it changed."""
+        if self._auto_value is not None and self.var.get().strip() == self._auto_value != today_str():
+            self.set_today()
+            return True
+        return False
+
+    def _step(self, days: int):
+        """Alt+Up / Alt+Down: next / previous day."""
+        try:
+            day = parse_date(self.var.get()) + dt.timedelta(days=days)
+        except ValueError:
+            return "break"
+        self.set(day.strftime("%Y-%m-%d"))
+        return "break"
 
 
 class LabeledOption(ctk.CTkFrame):

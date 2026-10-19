@@ -8,22 +8,33 @@ import subprocess
 import sys
 from pathlib import Path
 
+from hth.domain import numbers
 from hth.domain.constants import DATE_FMT
 
 
 def money(value: float | None) -> str:
-    if value is None or value == "":
-        return ""
-    return f"{float(value):,.2f}"
+    """Two decimals with the shop's digit grouping (Indian by default: 12,34,567.00)."""
+    return numbers.amount(value, 2)
 
 
 def qty(value: float | None) -> str:
+    return numbers.quantity(value)
+
+
+def compact_money(value: float | None) -> str:
+    """Short form for tiles and chart labels: 1.44 Cr, 12.5 L, 45.2 K (Indian) or M / K."""
     if value is None or value == "":
         return ""
     v = float(value)
-    if v.is_integer():
-        return f"{int(v):,}"
-    return f"{v:,.3f}".rstrip("0").rstrip(".")
+    a = abs(v)
+    if numbers.get_style() == "indian":
+        steps = ((1e7, "Cr"), (1e5, "L"), (1e3, "K"))
+    else:
+        steps = ((1e9, "B"), (1e6, "M"), (1e3, "K"))
+    for size, suffix in steps:
+        if a >= size:
+            return f"{v / size:.2f}".rstrip("0").rstrip(".") + f" {suffix}"
+    return money(v)
 
 
 def today_str() -> str:

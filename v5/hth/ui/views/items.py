@@ -63,7 +63,7 @@ class ItemsView(BaseView):
         self.expiry.grid(row=5, column=0, sticky="ew", pady=4, padx=(0, 6))
         self.gst = LabeledEntry(inner, "GST %", placeholder="0")
         self.gst.grid(row=5, column=1, sticky="ew", pady=4, padx=(6, 0))
-        self.item_type = LabeledOption(inner, "Type (F/P/S/O)", ITEM_TYPES, "O")
+        self.item_type = LabeledOption(inner, "Type (F fert · P pest · S seed · C crop · O other)", ITEM_TYPES, "O")
         self.item_type.grid(row=6, column=0, sticky="ew", pady=4, padx=(0, 6))
         self.pk = LabeledOption(inner, "Pakka / Kacha", PAKKA_KACHA, "P")
         self.pk.grid(row=6, column=1, sticky="ew", pady=4, padx=(6, 0))
@@ -435,6 +435,10 @@ class ItemHistoryPanel(ctk.CTkFrame):
 
     def delete_item(self) -> None:
         if confirm(self, "Delete item", f"Delete #{self.item.id} {self.item.name} and all its movements?"):
-            self.ctx.inventory.delete_item(self.item.id, self.ctx.username)
+            try:
+                self.ctx.inventory.delete_item(self.item.id, self.ctx.username)
+            except ValidationError as exc:
+                self.ctx.toast(str(exc), "error")
+                return
             self.ctx.toast("Item deleted", "success")
             self.view.show_list()

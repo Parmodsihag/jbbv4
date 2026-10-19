@@ -10,6 +10,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 from hth.db.connection import Database
+from hth.domain import numbers
 from hth.domain.constants import DATE_FMT
 from hth.domain.interest import parse_date
 
@@ -172,7 +173,7 @@ class IntegrityService:
                 r["id"],
                 r["name"],
                 f"Owes money, no activity for {days}+ days",
-                f"last entry {r['last']}, principal {r['principal']:,.2f}",
+                f"last entry {r['last']}, principal {numbers.amount(r['principal'])}",
             )
             for r in rows
         ]
@@ -202,7 +203,7 @@ class IntegrityService:
                 r["customer_id"],
                 r["name"],
                 "Open krar but nothing owed",
-                f"krar #{r['id']}, principal {r['principal']:,.2f}",
+                f"krar #{r['id']}, principal {numbers.amount(r['principal'])}",
             )
             for r in rows
             if r["principal"] <= 0
