@@ -269,21 +269,45 @@ class AccountsService:
         # settlement rows (Settled Amount / Discount) are legitimately negative
         amount_f = _validate_amount(amount, allow_negative=tag == Tag.SETTLE.value)
         tx_type = _validate_type(tx_type)
+        self._refuse_crop_linked(tx_id, "changed")
         with self.db.connect():
             self.db.execute(
                 "UPDATE transactions SET date=?, description=?, amount=?, type=?, tag=? WHERE id=?",
                 (date, description, amount_f, tx_type, tag, tx_id),
             )
+            # a receipt / payment booked into the cash book from the Sales screen follows the edit
+            if _count_if_table(self.db, "finance_entries", "tx_id = ?", tx_id):
+                if amount_f > 0:
+                    self.db.execute(
+                        "UPDATE finance_entries SET date = ?, amount = ?, kind = ? "
+                        "WHERE tx_id = ? AND kind IN ('receipt', 'payment')",
+                        (date, round(amount_f, 2), "receipt" if tx_type == TxType.CREDIT.value else "payment", tx_id),
+                    )
+                else:
+                    self.db.execute("DELETE FROM finance_entries WHERE tx_id = ?", (tx_id,))
             self.audit.log(
                 AuditCode.MODIFY,
                 f"tx {tx_id}: {date}, {description}, {amount_f}, {tx_type}, {tag}",
                 username,
             )
 
+    def _refuse_crop_linked(self, tx_id: int, verb: str) -> None:
+        """Ledger rows written by a crop lot / sale must change together with it (Crop Trade)."""
+        for table, label in (("crop_lots", "crop purchase lot"), ("crop_sales", "crop sale")):
+            if _count_if_table(self.db, table, "tx_id = ?", tx_id):
+                row = self.db.fetchone(f"SELECT id FROM {table} WHERE tx_id = ?", (tx_id,))
+                raise ValidationError(
+                    f"This entry belongs to {label} #{row['id']} and cannot be {verb} here - "
+                    "delete or re-enter the trade in Crop Trade so stock and FIFO costs stay right."
+                )
+
     def delete_transaction(self, tx_id: int, username: str) -> None:
         tx = self.get_transaction(tx_id)
+        self._refuse_crop_linked(tx_id, "deleted")
         with self.db.connect():
             self.db.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
+            if _count_if_table(self.db, "finance_entries", "tx_id = ?", tx_id):
+                self.db.execute("DELETE FROM finance_entries WHERE tx_id = ?", (tx_id,))
             self.audit.log(
                 AuditCode.DELETE,
                 f"tx {tx_id} customer {tx.customer_id if tx else '?'}: "
