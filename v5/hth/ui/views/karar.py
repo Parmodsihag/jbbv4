@@ -81,12 +81,18 @@ class KararView(BaseView):
         )
         self.bucket.set("Today")
         self.bucket.pack(side="left")
+        self._first_show = True
+        secondary_button(bar, "↻", self.reload, width=40).pack(side="right")
+        self.find = ctk.CTkEntry(bar, placeholder_text="Find…", width=180, height=32, font=theme.font(12))
+        self.find.pack(side="right", padx=8)
+        self.find.bind("<KeyRelease>", lambda e: self.table.filter(self.find.get()))
+        actions = ctk.CTkFrame(right, fg_color="transparent")
+        actions.pack(fill="x", padx=12, pady=(0, 4))
+        secondary_button(actions, "Copy reminder", self.copy_reminder, width=130).pack(side="left")
+        secondary_button(actions, "WhatsApp", self.whatsapp, width=100).pack(side="left", padx=6)
+        secondary_button(actions, "Copy all shown", self.copy_all, width=130).pack(side="left")
         if self.ctx.can(Permission.DELETE_RECORDS):
-            danger_button(bar, "Delete krar", self.delete_krar, width=100).pack(side="right")
-        secondary_button(bar, "↻", self.reload, width=40).pack(side="right", padx=6)
-        secondary_button(bar, "Copy all shown", self.copy_all, width=120).pack(side="right", padx=6)
-        secondary_button(bar, "WhatsApp", self.whatsapp, width=90).pack(side="right", padx=6)
-        secondary_button(bar, "Copy reminder", self.copy_reminder, width=120).pack(side="right", padx=6)
+            danger_button(actions, "Delete krar", self.delete_krar, width=110).pack(side="right")
         self.table = DataTable(
             right,
             [
@@ -116,6 +122,11 @@ class KararView(BaseView):
     def on_show(self, bucket: str | None = None, **kwargs) -> None:
         if bucket in ("Overdue", "Today", "Upcoming", "All"):
             self.bucket.set(bucket)
+        elif self._first_show:
+            # open where the work is: overdue promises first, else today's
+            if self.ctx.krar.entries("past"):
+                self.bucket.set("Overdue")
+        self._first_show = False
         self.account.refresh()
         self.settle_account.refresh()
         self.reload()
@@ -145,6 +156,8 @@ class KararView(BaseView):
             )
         total = sum(r[5] for r in rows if r[5] > 0)
         self.table.set_rows(rows, f"{len(rows)} krar · receivable {money(total)}")
+        if self.find.get():
+            self.table.filter(self.find.get())
 
     def add_krar(self) -> None:
         customer_id = self.account.get_key()
