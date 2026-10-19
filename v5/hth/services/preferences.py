@@ -11,7 +11,9 @@ DEFAULTS = {
     "ui.number_style": "indian",  # indian | international
     "ui.sidebar_compact": "0",
     "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
+    "ui.text_scale": "1.0",  # 0.9 | 1.0 | 1.15 | 1.3
 }
+TEXT_SCALES = (0.9, 1.0, 1.15, 1.3)
 THEMES = ("light", "dark", "system")
 
 
@@ -40,6 +42,18 @@ class Preferences:
 
     def apply_number_style(self) -> None:
         numbers.set_style(self.number_style())
+
+    def text_scale(self) -> float:
+        try:
+            v = float(self.settings.get("ui.text_scale"))
+        except ValueError:
+            return 1.0
+        return v if v in TEXT_SCALES else 1.0
+
+    def set_text_scale(self, scale: float) -> None:
+        if float(scale) not in TEXT_SCALES:
+            raise ValueError("Text size must be 90%, 100%, 115% or 130%.")
+        self.settings.set("ui.text_scale", f"{float(scale):g}")
 
     def sidebar_compact(self) -> bool:
         return self.settings.get_bool("ui.sidebar_compact")

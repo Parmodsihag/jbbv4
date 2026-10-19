@@ -72,6 +72,7 @@ class App(ctk.CTk):
         self.prefs.apply_number_style()
         self.appearance = self.prefs.theme()
         theme.init_theme(self.appearance)
+        theme.set_text_scale(self.prefs.text_scale())
         super().__init__()
         self.ctx = AppContext(db=db, settings=settings, app=self)
         self.title(f"{__app_name__} {__version__}")
@@ -534,6 +535,16 @@ class App(ctk.CTk):
     # Theme -------------------------------------------------------------------------------
     def _theme_icon(self) -> str:
         return icons.icon("moon") if ctk.get_appearance_mode().lower() == "dark" else icons.icon("sun")
+
+    def apply_text_scale(self, scale: float) -> None:
+        self.prefs.set_text_scale(scale)
+        theme.set_text_scale(scale)
+        theme.style_treeview()
+        for view in self._views.values():
+            try:
+                view.on_theme_change()
+            except Exception:  # noqa: BLE001
+                log.exception("restyle failed for %s", view.key)
 
     def toggle_theme(self) -> None:
         self.apply_theme("light" if ctk.get_appearance_mode().lower() == "dark" else "dark")

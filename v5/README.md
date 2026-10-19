@@ -22,7 +22,8 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Requirements: Python 3.10+, Windows/macOS/Linux.
+Requirements: Python 3.10+, Windows/macOS/Linux. On the shop PC, double-click
+`Start High Table Holdings v5.bat` (no console window).
 
 ### First sign-in
 
@@ -160,7 +161,7 @@ button checks it, and every write records the acting user in the audit log.
 * **Users** (admin) – add, reset password, change role, activate / deactivate.
 * **Settings** – theme (light / dark / system, remembered), **number style** (Indian
   12,34,567.00 or international 1,234,567.00, used everywhere including statements and
-  reminders), **auto-lock** after N idle minutes, backup (plus **automatic daily backup** on
+  reminders), **text size** (90–130 %), **auto-lock** after N idle minutes, backup (plus **automatic daily backup** on
   the first start each day, keeping the last N), **restore a backup**, v3 import, shop
   details, reminder template, categories, run the setup wizard again, change password.
 * **Lock** – `Ctrl+L`, the sidebar *Lock* button or the idle timer hides the work behind a

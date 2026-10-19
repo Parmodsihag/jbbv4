@@ -76,7 +76,8 @@ class DataTable(ctk.CTkFrame):
         )
         for idx, col in enumerate(self.columns):
             self.tree.heading(col.key, text=col.title, anchor=col.anchor, command=lambda i=idx: self.sort_by(i))
-            self.tree.column(col.key, width=col.width, minwidth=40, anchor=col.anchor, stretch=col.stretch)
+            width = round(col.width * theme.text_scale())  # columns grow with Settings -> Text size
+            self.tree.column(col.key, width=width, minwidth=40, anchor=col.anchor, stretch=col.stretch)
         vsb = ctk.CTkScrollbar(self, command=self.tree.yview)
         hsb = ctk.CTkScrollbar(self, command=self.tree.xview, orientation="horizontal")
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -106,7 +107,7 @@ class DataTable(ctk.CTkFrame):
         self.tree.tag_configure("pos", foreground=theme.current("success"))
         self.tree.tag_configure("warn", foreground=theme.current("warning"))
         self.tree.tag_configure("muted", foreground=theme.current("muted"))
-        self.tree.tag_configure("bold", font=(theme.FONT_FAMILY, 12, "bold"))
+        self.tree.tag_configure("bold", font=theme.table_font(bold=True))
 
     # Data ----------------------------------------------------------------------------
     def set_rows(self, rows: Sequence[Sequence[Any]], footer: str | None = None) -> None:

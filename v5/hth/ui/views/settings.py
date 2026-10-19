@@ -62,6 +62,18 @@ class SettingsView(BaseView):
         self.number_style.pack(side="left")
 
         row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=6)
+        ctk.CTkLabel(row, text="Text size", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        self.text_size = ctk.CTkSegmentedButton(
+            row, values=["90%", "100%", "115%", "130%"], command=self._set_text_size, font=theme.font(13)
+        )
+        self.text_size.set(f"{round(prefs.text_scale() * 100)}%")
+        self.text_size.pack(side="left")
+        ctk.CTkLabel(
+            row, text="   bigger text and rows on every screen", font=theme.font(11), text_color=theme.color("muted")
+        ).pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=(6, 16))
         ctk.CTkLabel(row, text="Auto-lock", font=theme.font(13), width=120, anchor="w").pack(side="left")
         lock_choices = ["Never", "2 min", "5 min", "10 min", "15 min", "30 min", "60 min"]
@@ -375,6 +387,10 @@ class SettingsView(BaseView):
 
     def _set_mode(self, value: str) -> None:
         self.ctx.app.apply_theme(value.lower())
+
+    def _set_text_size(self, value: str) -> None:
+        self.ctx.app.apply_text_scale(int(value.rstrip("%")) / 100)
+        self.ctx.toast(f"Text size {value} - table columns follow the next time you sign in", "success")
 
     def _set_number_style(self, value: str) -> None:
         style = "indian" if value.startswith("Indian") else "international"

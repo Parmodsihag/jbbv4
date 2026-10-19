@@ -133,8 +133,10 @@ class CustomerListPanel(ctk.CTkFrame):
         )
         self.search.pack(side="right")
         self.search.bind("<KeyRelease>", lambda e: self._filter())
+        filters = ctk.CTkFrame(self, fg_color="transparent")  # own row: survives larger text
+        filters.pack(fill="x", padx=12, pady=(0, 4))
         self.cat_filter = ctk.CTkOptionMenu(
-            bar,
+            filters,
             values=["All", "A", "B", "C", "D", "E"],
             width=70,
             height=34,
@@ -142,15 +144,15 @@ class CustomerListPanel(ctk.CTkFrame):
             command=lambda _v: self._filter(),
         )
         self.cat_filter.set("All")
-        self.cat_filter.pack(side="right", padx=(0, 6))
+        self.cat_filter.pack(side="left", padx=(8, 0))
         self.bal_filter = ctk.CTkSegmentedButton(
-            bar,
+            filters,
             values=["All", "Owe us", "We owe", "Settled"],
             command=lambda _v: self._filter(),
             font=theme.font(12),
         )
         self.bal_filter.set("All")
-        self.bal_filter.pack(side="right", padx=(0, 10))
+        self.bal_filter.pack(side="left")
         self.table = DataTable(
             self,
             [
