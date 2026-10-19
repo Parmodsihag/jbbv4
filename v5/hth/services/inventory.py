@@ -379,6 +379,16 @@ class InventoryService:
         )
         return {r["id"]: r["last_sale"] for r in rows}
 
+    def sales_between(self, item_id: int, date_from: str, date_to: str) -> tuple[float, float, int]:
+        """(quantity sold, sale value recorded, number of sales) of one item in a date range."""
+        r = self.db.fetchone(
+            "SELECT COALESCE(SUM(sale), 0) AS q, COALESCE(SUM(CASE WHEN sale > 0 THEN value END), 0) AS v, "
+            "COUNT(CASE WHEN sale > 0 THEN 1 END) AS n FROM item_transactions "
+            "WHERE item_id = ? AND date BETWEEN ? AND ?",
+            (item_id, date_from, date_to),
+        )
+        return round(float(r["q"]), 4), round(float(r["v"]), 2), int(r["n"])
+
     def total_stock_value(self) -> float:
         return round(sum(s.total_value for s in self.summaries()), 2)
 

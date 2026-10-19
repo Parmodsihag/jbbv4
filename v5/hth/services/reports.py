@@ -160,6 +160,18 @@ class ReportsService:
         )
         return DayTotals(date, int(r["n"]), round(r["deb"], 2), round(r["cred"], 2))
 
+    def range_totals(self, date_from: str, date_to: str) -> DayTotals:
+        """Like :meth:`day_totals` for a date range (``date`` holds ``from..to``)."""
+        r = self.db.fetchone(
+            "SELECT COUNT(*) AS n, "
+            "COALESCE(SUM(CASE WHEN type = 'P' THEN amount END), 0) AS deb, "
+            "COALESCE(SUM(CASE WHEN type = 'M' THEN amount END), 0) AS cred "
+            "FROM transactions WHERE date BETWEEN ? AND ? "
+            "AND NOT (tag = '0' AND description IN ('Settled Amount', 'Discount'))",
+            (date_from, date_to),
+        )
+        return DayTotals(f"{date_from}..{date_to}", int(r["n"]), round(r["deb"], 2), round(r["cred"], 2))
+
     def daily_activity(self, days: int = 7) -> list[tuple[str, int]]:
         return self.audit.daily_counts(days)
 

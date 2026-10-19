@@ -509,3 +509,25 @@ def test_v5_hindi_switch(app):
     finally:
         i18n.set_language("en")
         i18n.set_names({}, {})
+
+
+def test_v5_assistant_chat_asks_back_and_answers(app):
+    ctx = app.ctx
+    ctx.accounts.add_customer("RAMESH KUMAR", "ROHTAK", 500, "2026-01-01")
+    ctx.accounts.add_customer("RAMESH SAINI", "BHIWANI", 900, "2026-01-01")
+    _login(app, "admin", "admin")
+    app.navigate("assistant")
+    view = app._views["assistant"]
+    assert _wait(app, lambda: view._ready, timeout=120)
+    start = len(view._bubbles)
+    view.entry.insert(0, "ramesh ka kitna baaki hai")
+    view.send()
+    assert _wait(app, lambda: not view._busy, timeout=20)
+    assert view.session.pending is not None and len(view.session.pending.options) == 2
+    choice = next(b for b in _buttons(view.chat) if "Saini" in b.cget("text") or "सैनी" in b.cget("text"))
+    choice.invoke()
+    assert _wait(app, lambda: not view._busy and view.session.pending is None, timeout=20)
+    assert len(view._bubbles) >= start + 4  # question, ask-back, choice, answer
+    assert view.session.history[-1][1].tool == "customer_balance"
+    view.new_chat()
+    assert view.session.history == []

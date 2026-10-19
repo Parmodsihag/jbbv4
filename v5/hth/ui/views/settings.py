@@ -9,7 +9,7 @@ import customtkinter as ctk
 
 from hth import __app_name__, __version__
 from hth.config import LEGACY_DATA_DIR_WINDOWS
-from hth.domain.constants import ANNUAL_INTEREST_RATE_PERCENT
+from hth.domain.constants import ANNUAL_INTEREST_RATE_PERCENT, AuditCode
 from hth.migration.from_v3 import MigrationError, migrate
 from hth.services.accounts import ValidationError
 from hth.services.permissions import Permission
@@ -188,6 +188,7 @@ class SettingsView(BaseView):
         ).pack(fill="x", pady=(8, 0))
 
         self._build_hindi(scroll)
+        self._build_assistant(scroll)
         self._build_company(scroll)
         self._build_reminders(scroll)
         self._build_categories(scroll)
@@ -444,6 +445,115 @@ class SettingsView(BaseView):
         if self.ctx.can(Permission.MANAGE_SETTINGS):
             secondary_button(actions, "Fill missing", self.fill_hindi, width=120).pack(side="left", padx=8)
             secondary_button(actions, "Regenerate automatic ones", self.regenerate_hindi, width=200).pack(side="left")
+
+    # Assistant ---------------------------------------------------------------------------
+    def _build_assistant(self, scroll) -> None:
+        card = Card(scroll, "Assistant (सहायक)")
+        card.pack(fill="x", padx=4, pady=4)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(4, 16))
+        self.assistant_status = ctk.CTkLabel(
+            body,
+            text="",
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+            anchor="w",
+            justify="left",
+            wraplength=900,
+        )
+        self.assistant_status.pack(fill="x")
+        if self.ctx.can(Permission.MANAGE_SETTINGS):
+            actions = ctk.CTkFrame(body, fg_color="transparent")
+            actions.pack(fill="x", pady=(8, 0))
+            secondary_button(actions, "Install model…", self.install_model, width=150).pack(side="left")
+            secondary_button(actions, "Remove model", self.remove_model, width=130).pack(side="left", padx=8)
+        self._show_assistant_status()
+
+    def _show_assistant_status(self) -> None:
+        from hth import i18n
+        from hth.assistant.system2 import backend_available, find_model, models_dir
+
+        hi = i18n.is_hindi()
+        info_ = find_model(models_dir(self.ctx.settings.data_dir))
+        if info_ is None:
+            model = (
+                "भाषा मॉडल: नहीं लगा (ज़रूरी नहीं - बिना इसके भी सहायक चलता है; Kaggle सेल से बनाकर यहाँ लगाएँ)।"
+                if hi
+                else "Language model: not installed (optional - the assistant works without it; train one with "
+                "tools/assistant/kaggle_train_cell.py on Kaggle and install the zip here)."
+            )
+        else:
+            m = info_.manifest
+            acc = m.get("eval", {}).get("intent_accuracy")
+            details = f"{info_.path.name}, {info_.size_mb:.0f} MB, {m.get('base_model', '?')}"
+            if acc is not None:
+                details += f", {acc:.0%}"
+            model = f"भाषा मॉडल: लगा है ({details})।" if hi else f"Language model: installed ({details})."
+            if not backend_available():
+                model += (
+                    " इसे चलाने के लिए llama-cpp-python पैकेज चाहिए।"
+                    if hi
+                    else " It needs the llama-cpp-python package to run (pip install llama-cpp-python)."
+                )
+        intro = (
+            "सहायक हिंदी, हिंग्लिश या अंग्रेज़ी में पूछे सवालों के जवाब देता है - केवल देखता है, कुछ बदलता नहीं। "
+            "समझने वाला हिस्सा इसी में बना है और हमेशा चालू है।"
+            if hi
+            else "The assistant answers questions in Hindi, Hinglish or English - it only looks things up, it never "
+            "changes anything. Its built-in understanding is always on."
+        )
+        self.assistant_status.configure(text=i18n.Raw(intro + "\n" + model))
+
+    def _assistant_model(self):
+        view = getattr(self.ctx.app, "_views", {}).get("assistant")
+        return getattr(view, "system2", None)
+
+    def install_model(self) -> None:
+        from hth.assistant.system2 import install_zip
+
+        path = filedialog.askopenfilename(
+            title="Choose the assistant model (hth_assistant_model.zip)",
+            filetypes=[("Assistant model", "*.zip"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path:
+            return
+        model = self._assistant_model()
+        if model is not None:
+            model.unload()  # Windows keeps an open model file locked
+        self.ctx.toast("Installing the model…")
+
+        def done(info_) -> None:
+            if model is not None:
+                model.error = None
+            self.ctx.audit.log(AuditCode.ASSISTANT, f"assistant model installed {info_.path.name}", self.ctx.username)
+            self._show_assistant_status()
+            self.ctx.toast(f"Model installed: {info_.path.name}", "success")
+
+        self.run_async(lambda: install_zip(Path(path), self.ctx.settings.data_dir), done, self._model_failed)
+
+    def _model_failed(self, exc: Exception) -> None:
+        self.ctx.toast(f"Could not install the model: {exc}", "error")
+
+    def remove_model(self) -> None:
+        import shutil
+
+        from hth.assistant.system2 import models_dir
+
+        folder = models_dir(self.ctx.settings.data_dir)
+        if not folder.exists() or not confirm(self, "Remove model", "Remove the assistant's language model?"):
+            return
+        model = self._assistant_model()
+        if model is not None:
+            model.unload()
+        try:
+            shutil.rmtree(folder)
+        except OSError as exc:
+            self.ctx.toast(f"Could not remove the model: {exc}", "error")
+            return
+        self.ctx.audit.log(AuditCode.ASSISTANT, "assistant model removed", self.ctx.username)
+        self._show_assistant_status()
+        self.ctx.toast("Model removed", "success")
 
     def review_hindi(self) -> None:
         from hth.ui.widgets.hindi_review import HindiReview

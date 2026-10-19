@@ -107,8 +107,17 @@ def _one(text: str) -> str | None:
     return None
 
 
+class Raw(str):
+    """Text that is already in the language it should be shown in (assistant answers, a
+    customer's own words) - ``tr`` passes it through untouched."""
+
+    __slots__ = ()
+
+
 def tr(text: str | None) -> str:
     """Interface text in the current language."""
+    if isinstance(text, Raw):
+        return str(text)
     if not text or _lang != "hi" or not isinstance(text, str):
         return text if isinstance(text, str) else ("" if text is None else str(text))
     core = text.strip()

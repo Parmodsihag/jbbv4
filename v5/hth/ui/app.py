@@ -21,6 +21,7 @@ from hth.services.preferences import Preferences
 from hth.services.search import SearchService
 from hth.ui import icons, theme
 from hth.ui.context import AppContext
+from hth.ui.views.assistant import AssistantView
 from hth.ui.views.base import BaseView
 from hth.ui.views.customers import CustomersView
 from hth.ui.views.dashboard import DashboardView
@@ -41,6 +42,7 @@ log = logging.getLogger(__name__)
 # (key, label, shortcut, permission, class)
 CORE_VIEWS: list[tuple[str, str, str, Permission | None, type[BaseView]]] = [
     ("dashboard", "Dashboard", "d", Permission.VIEW_DASHBOARD, DashboardView),
+    ("assistant", "Assistant", "h", None, AssistantView),
     ("sales", "Sales", "s", Permission.RECORD_SALE, SalesView),
     ("customers", "Accounts", "a", Permission.ADD_CUSTOMER, CustomersView),
     ("items", "Items", "i", Permission.ADD_ITEM, ItemsView),
@@ -52,6 +54,7 @@ CORE_VIEWS: list[tuple[str, str, str, Permission | None, type[BaseView]]] = [
 
 SUBTITLES = {
     "dashboard": "The shop at a glance",
+    "assistant": "Ask about the shop in Hindi, Hinglish or English",
     "sales": "Sales, receipts and crop trades",
     "customers": "Customers, farmers and buyers - balances and ledgers",
     "items": "Stock, prices and movements",

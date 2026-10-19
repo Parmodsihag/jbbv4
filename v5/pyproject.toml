@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "high-table-holdings"
-version = "5.1.0"
+version = "5.2.0"
 description = "Accounting and inventory management for Jaat Beaj Bhander"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,11 +15,13 @@ dependencies = [
     "openpyxl>=3.1",
     "docxtpl>=0.16",
     "pypdf>=4",
+    "numpy>=1.24",  # the assistant's intent classifier (also needed by matplotlib)
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.4"]
 pdf = ["docx2pdf>=0.1.8"]  # DOCX -> PDF through Microsoft Word (Windows / macOS)
+assistant = ["llama-cpp-python>=0.3"]  # optional: runs the assistant's trained language model
 
 [project.scripts]
 hth = "hth.__main__:main"
@@ -37,6 +39,7 @@ addopts = "-q"
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+extend-exclude = ["tools/assistant/kaggle_train_cell.py"]  # generated, with data.py embedded
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -45,3 +48,5 @@ select = ["E", "F", "I", "B", "UP"]
 "hth/services/statements.py" = ["E501"]  # HTML template literal
 "hth/i18n/hi.py" = ["E501"]  # phrase table: one English / Hindi pair per entry
 "hth/i18n/hindi_words.py" = ["E501"]
+"hth/assistant/{data,entities,normalize,system1}.py" = ["E501"]  # word lists and templates
+"tools/assistant/kaggle_cell_template.py" = ["E402"]  # one notebook cell: settings first, then imports
