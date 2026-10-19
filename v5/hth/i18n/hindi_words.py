@@ -130,7 +130,7 @@ NAME_WORDS: dict[str, str] = {
     "MOB": "मो.", "PH": "फ़ोन", "PHONE": "फ़ोन", "SO": "पुत्र", "WO": "पत्नी", "DO": "पुत्री",
     "TRADING": "ट्रेडिंग", "TRADERS": "ट्रेडर्स", "CO": "कं.", "COMPANY": "कंपनी", "AND": "और",
     "BEEJ": "बीज", "BHANDAR": "भंडार", "BHANDER": "भंडार", "STORE": "स्टोर", "SHOP": "दुकान",
-    "TEST": "टेस्ट", "ONE": "वन", "CASH": "नकद", "BANK": "बैंक", "UPI": "यूपीआई",
+    "TEST": "टेस्ट", "ONE": "वन", "JAAT": "जाट", "BEAJ": "बीज", "CASH": "नकद", "BANK": "बैंक", "UPI": "यूपीआई",
 }
 
 ITEM_WORDS: dict[str, str] = {

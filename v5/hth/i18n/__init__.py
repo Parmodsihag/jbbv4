@@ -43,7 +43,7 @@ def _load() -> None:
     _patterns.clear()
     for key, value in HI.items():
         if "{}" in key:
-            body = re.escape(key).replace(r"\{\}", "(.+?)")
+            body = re.escape(key).replace(r"\{\}", "(.*?)")  # a hole may be empty: "recorded{}"
             _patterns.append((re.compile(f"^{body}$", re.DOTALL), value))
         else:
             _exact[key] = value
@@ -67,12 +67,16 @@ def is_hindi() -> bool:
 
 
 # Names -----------------------------------------------------------------------------------
-def set_names(mapping: dict[str, str]) -> None:
-    """English customer / item texts and their Hindi copies (refreshed by the app)."""
+def set_names(names: dict[str, str], details: dict[str, str] | None = None) -> None:
+    """English customer / item names and details with their Hindi copies (refreshed by the
+    app).  Names are also replaced inside free text (ledger particulars); details only match
+    a whole cell."""
     _names.clear()
-    _names.update({k: v for k, v in mapping.items() if k and v and k != v})
+    _names.update({k: v for k, v in (details or {}).items() if k and v and k != v and k != "NA"})
+    clean = {k: v for k, v in names.items() if k and v and k != v}
+    _names.update(clean)
     # replaced inside free text only when long enough not to hit parts of other words
-    _inline[:] = sorted(((k, v) for k, v in _names.items() if len(k) >= 4), key=lambda kv: -len(kv[0]))
+    _inline[:] = sorted(((k, v) for k, v in clean.items() if len(k) >= 4), key=lambda kv: -len(kv[0]))
 
 
 def name(text: str | None) -> str:
@@ -150,6 +154,26 @@ def tr_cell(value) -> str:
                 out = out.replace(en, hi)
         return out
     return text
+
+
+# Dates ---------------------------------------------------------------------------------------
+_MONTHS = ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"]
+_MONTHS_SHORT = ["जन", "फ़र", "मार्च", "अप्रै", "मई", "जून", "जुला", "अग", "सित", "अक्टू", "नव", "दिस"]
+_DAYS = ["सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार"]
+
+
+def date_text(day, fmt: str) -> str:
+    """``day.strftime(fmt)`` with Hindi month and weekday names when Hindi is on
+    (``%A %B %b`` only; digits stay as they are)."""
+    if _lang != "hi":
+        return day.strftime(fmt)
+    # Windows strftime rejects non-ASCII formats: format with markers, then put the names in
+    out = day.strftime(fmt.replace("%A", "\x01").replace("%B", "\x02").replace("%b", "\x03"))
+    return (
+        out.replace("\x01", _DAYS[day.weekday()])
+        .replace("\x02", _MONTHS[day.month - 1])
+        .replace("\x03", _MONTHS_SHORT[day.month - 1])
+    )
 
 
 # Coverage helper ---------------------------------------------------------------------------

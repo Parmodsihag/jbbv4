@@ -34,6 +34,9 @@ def main() -> int:
     initialize(db, settings.backup_dir)
     if previous is not None:
         SettingsService(db).set("upgrade.copied_from", str(previous))
+    from hth.services.hindi import HindiNamesService
+
+    HindiNamesService(db).fill_missing()  # Hindi copies for records that have none yet
     AuthService(db).ensure_default_users()
     from hth.services.backup import BackupService
 

@@ -16,6 +16,9 @@ from hth.domain import numbers
 from hth.domain.constants import ANNUAL_INTEREST_RATE_PERCENT, DATE_FMT
 from hth.domain.interest import parse_date
 from hth.domain.models import LedgerRow
+from hth.i18n import name as hi_name
+from hth.i18n import tr as t
+from hth.i18n import tr_cell
 from hth.services.accounts import AccountsService, ValidationError, _validate_date
 from hth.services.company import CompanyService
 from hth.services.export import safe_filename
@@ -81,16 +84,18 @@ class StatementService:
         owes = s.closing_balance > 0
         body_rows = "\n".join(
             f"<tr class='{'settle' if r.tag == '0' else ''}'><td>{escape(r.date)}</td>"
-            f"<td class='l'>{escape(r.particulars)}</td><td>{_money(r.interest) if r.tag != '0' else ''}</td>"
+            f"<td class='l'>{escape(tr_cell(r.particulars))}</td><td>{_money(r.interest) if r.tag != '0' else ''}</td>"
             f"<td>{_money(r.debit)}</td><td>{_money(r.credit)}</td><td>{_money(r.balance)}</td></tr>"
             for r in s.rows
         )
         if not body_rows:
-            body_rows = "<tr><td colspan='6' class='l muted'>No entries in this period.</td></tr>"
+            body_rows = f"<tr><td colspan='6' class='l muted'>{t('No entries in this period.')}</td></tr>"
+        name, details = hi_name(s.customer_name), hi_name(s.customer_details)
+        state = t("due from you") if owes else (t("in your favour") if s.closing_balance < 0 else t("(settled)"))
         return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Statement - {escape(s.customer_name)}</title>
+<html><head><meta charset="utf-8"><title>{escape(t(f"Statement - {name}"))}</title>
 <style>
-  body {{ font-family: Segoe UI, Helvetica, Arial, sans-serif; color: #111; margin: 24px; font-size: 13px; }}
+  body {{ font-family: 'Segoe UI', 'Nirmala UI', Mangal, Helvetica, Arial, sans-serif; color: #111; margin: 24px; font-size: 13px; }}
   .head {{ display: flex; justify-content: space-between; border-bottom: 2px solid #0e7490; padding-bottom: 10px; }}
   .head h1 {{ margin: 0; font-size: 22px; color: #0e7490; }} .head .sub {{ color: #555; }}
   .meta {{ display: flex; justify-content: space-between; margin: 14px 0; }}
@@ -106,27 +111,27 @@ class StatementService:
   .sign {{ margin-top: 40px; display: flex; justify-content: space-between; }}
   @media print {{ body {{ margin: 10mm; }} .noprint {{ display: none; }} }}
 </style></head><body>
-<div class="noprint" style="text-align:right"><button onclick="window.print()">Print / Save as PDF</button></div>
+<div class="noprint" style="text-align:right"><button onclick="window.print()">{t("Print / Save as PDF")}</button></div>
 <div class="head">
   <div><h1>{escape(c.name)}</h1><div class="sub">{escape(c.tagline)}</div><div class="sub">{escape(c.address)}</div></div>
-  <div style="text-align:right" class="sub">Mobile {escape(c.phone)}<br>GSTIN {escape(c.gstin)}<br>{escape(c.licences)}</div>
+  <div style="text-align:right" class="sub">{t(f"Mobile {c.phone}")}<br>GSTIN {escape(c.gstin)}<br>{escape(c.licences)}</div>
 </div>
 <div class="meta">
-  <div class="box"><span class="muted">Statement of account</span><b>{escape(s.customer_name)}</b>
-    {escape(s.customer_details)}<br><span class="muted">Account #{s.customer_id}</span></div>
-  <div class="box"><span class="muted">Period</span><b>{s.date_from} to {s.date_to}</b>
-    Generated {s.generated_at}<br><span class="muted">Interest {ANNUAL_INTEREST_RATE_PERCENT:g}% p.a. on tag-1 entries, compounded 31 March</span></div>
+  <div class="box"><span class="muted">{t("Statement of account")}</span><b>{escape(name)}</b>
+    {escape(details)}<br><span class="muted">{t(f"Account #{s.customer_id}")}</span></div>
+  <div class="box"><span class="muted">{t("Period")}</span><b>{t(f"{s.date_from} to {s.date_to}")}</b>
+    {t(f"Generated {s.generated_at}")}<br><span class="muted">{t(f"Interest {ANNUAL_INTEREST_RATE_PERCENT:g}% p.a. on tag-1 entries, compounded 31 March")}</span></div>
 </div>
 <table>
-  <thead><tr><th class="l">Date</th><th class="l">Particulars</th><th>Interest</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+  <thead><tr><th class="l">{t("Date")}</th><th class="l">{t("Particulars")}</th><th>{t("Interest")}</th><th>{t("Debit")}</th><th>{t("Credit")}</th><th>{t("Balance")}</th></tr></thead>
   <tbody>
-    <tr><td></td><td class="l">Opening balance</td><td></td><td></td><td></td><td>{_money(s.opening_balance)}</td></tr>
+    <tr><td></td><td class="l">{t("Opening balance")}</td><td></td><td></td><td></td><td>{_money(s.opening_balance)}</td></tr>
     {body_rows}
-    <tr class="totals"><td></td><td class="l">Totals for period</td><td>{_money(s.total_interest)}</td><td>{_money(s.total_debit)}</td><td>{_money(s.total_credit)}</td><td>{_money(s.closing_balance)}</td></tr>
+    <tr class="totals"><td></td><td class="l">{t("Totals for period")}</td><td>{_money(s.total_interest)}</td><td>{_money(s.total_debit)}</td><td>{_money(s.total_credit)}</td><td>{_money(s.closing_balance)}</td></tr>
   </tbody>
 </table>
-<div class="closing">Closing balance: <b>{_money(abs(s.closing_balance))} {"due from you" if owes else ("in your favour" if s.closing_balance < 0 else "(settled)")}</b></div>
-<div class="sign"><div>Customer signature: ______________________</div><div>For {escape(c.name)}: ______________________</div></div>
+<div class="closing">{t("Closing balance:")} <b>{_money(abs(s.closing_balance))} {state}</b></div>
+<div class="sign"><div>{t("Customer signature: ______________________")}</div><div>{escape(t(f"For {c.name}: ______________________"))}</div></div>
 <div class="foot">{escape(c.footer)}</div>
 </body></html>
 """

@@ -12,7 +12,9 @@ DEFAULTS = {
     "ui.sidebar_compact": "0",
     "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
     "ui.text_scale": "1.0",  # 0.9 | 1.0 | 1.15 | 1.3
+    "ui.language": "en",  # en | hi
 }
+LANGUAGES = ("en", "hi")
 TEXT_SCALES = (0.9, 1.0, 1.15, 1.3)
 THEMES = ("light", "dark", "system")
 
@@ -54,6 +56,15 @@ class Preferences:
         if float(scale) not in TEXT_SCALES:
             raise ValueError("Text size must be 90%, 100%, 115% or 130%.")
         self.settings.set("ui.text_scale", f"{float(scale):g}")
+
+    def language(self) -> str:
+        v = self.settings.get("ui.language").lower()
+        return v if v in LANGUAGES else "en"
+
+    def set_language(self, lang: str) -> None:
+        if lang not in LANGUAGES:
+            raise ValueError("Language must be en or hi.")
+        self.settings.set("ui.language", lang)
 
     def sidebar_compact(self) -> bool:
         return self.settings.get_bool("ui.sidebar_compact")

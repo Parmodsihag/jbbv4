@@ -14,6 +14,7 @@ from hth.services.auth import AuthService
 from hth.services.backup import BackupService
 from hth.services.categories import CategoryService
 from hth.services.company import CompanyService
+from hth.services.hindi import HindiNamesService
 from hth.services.integrity import IntegrityService
 from hth.services.inventory import InventoryService
 from hth.services.krar import KrarService
@@ -48,6 +49,7 @@ class AppContext:
     reminders: ReminderService = field(init=False)
     backup: BackupService = field(init=False)
     prefs: Preferences = field(init=False)
+    hindi: HindiNamesService = field(init=False)
 
     def __post_init__(self) -> None:
         self.accounts = AccountsService(self.db)
@@ -64,6 +66,7 @@ class AppContext:
         self.reminders = ReminderService(self.db)
         self.backup = BackupService(self.db, self.settings)
         self.prefs = Preferences(self.db)
+        self.hindi = HindiNamesService(self.db)
 
     @property
     def username(self) -> str:

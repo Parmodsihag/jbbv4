@@ -182,6 +182,28 @@ button checks it, and every write records the acting user in the audit log.
 
 ---
 
+## Hindi (हिन्दी)
+
+**Settings → Appearance → Language** switches the whole program between English and
+Hindi at once. It is shop-wide and remembered.
+
+* **Interface** - every label, button, tab, menu, message, report title and column comes
+  from one phrase table, `hth/i18n/hi.py` (English key → Hindi). Phrases with numbers use
+  `{}` holes: `"{} entries": "{} एंट्री"`. To change a word, edit that file - nothing else
+  in the code needs touching. `HTH_I18N_MISSES=<file>` records any text shown in Hindi mode
+  that has no entry yet.
+* **Names** - each customer and item keeps a Hindi copy of its name (and the customer's
+  details) next to the English one, generated offline from the English spelling
+  (`hth/i18n/translit.py` with the word list in `hindi_words.py`). Correct a name in
+  *Edit customer* / *Edit item* or in **Settings → Hindi names → Review / correct names…**;
+  corrected names are marked ✓ and never regenerated. *Fill missing* and *Regenerate
+  automatic ones* redo the automatic copies.
+* English stays the original: ledger entries, bills, v3 import and the database itself
+  keep English, so switching back loses nothing. Search boxes match English and Hindi.
+* Statements, counter slips and Excel exports come out in Hindi with Hindi names;
+  reminders use a separate Hindi template (Settings → Payment reminders, while in Hindi).
+* Chart text stays Latin - matplotlib cannot draw Devanagari correctly.
+
 ## Business rules (unchanged from v3)
 
 | rule | detail |
@@ -312,6 +334,8 @@ hth/
   logging_setup.py          rotating file log in <data>/logs
   db/connection.py          Database: one file, transaction-scoped, re-entrant connections
   db/schema.py              versioned migrations (PRAGMA user_version)
+  i18n/                     English -> Hindi: tr(), widget hook, phrase table (hi.py),
+                            transliteration of names (translit.py, hindi_words.py)
   domain/                   constants, interest formula, numbers (Indian grouping),
                             units, dataclasses (no I/O)
   services/                 business logic: accounts, inventory, sales, krar, reports,
