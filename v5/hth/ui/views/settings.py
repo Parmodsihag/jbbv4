@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 from pathlib import Path
 from tkinter import filedialog
 
@@ -122,6 +121,7 @@ class SettingsView(BaseView):
         )
         if self.ctx.can(Permission.BACKUP):
             primary_button(row, "Backup now", self.backup, width=130).pack(side="left", padx=(0, 8))
+            secondary_button(row, "Restore a backup…", self.restore, width=160).pack(side="left", padx=(0, 8))
         b = self.ctx.backup
         last = b.last_backup()
         self.auto_backup = ctk.BooleanVar(value=b.enabled())
@@ -419,10 +419,43 @@ class SettingsView(BaseView):
             self.ctx.app.logout()
 
     def backup(self) -> None:
-        dest = self.ctx.settings.backup_dir / f"hth_{dt.datetime.now():%Y%m%d_%H%M%S}.db"
-        self.ctx.db.backup_to(dest)
+        dest = self.ctx.backup.manual()
         self.ctx.toast(f"Backup saved: {dest.name}", "success")
         self.ctx.audit.log("09", f"backup {dest.name}", self.ctx.username)
+        self.ctx.app.refresh_backup_label()
+
+    def restore(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choose a backup to restore",
+            initialdir=str(self.ctx.settings.backup_dir),
+            filetypes=[("Database backups", "*.db"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path:
+            return
+        try:
+            backup = self.ctx.backup.inspect(Path(path))
+        except ValueError as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        when = backup.last_activity[:16] or "unknown"
+        if not confirm(
+            self,
+            "Restore backup",
+            f"Replace ALL current data with\n{backup.path.name}?\n\n"
+            f"It holds {backup.customers:,} accounts and {backup.entries:,} ledger entries; "
+            f"last activity {when}.\n\nEverything entered after that is replaced. The current data is saved "
+            "first as a 'before_restore' backup, so this can be undone by restoring that file.\n\n"
+            "Everyone is signed out afterwards.",
+        ):
+            return
+        try:
+            safety = self.ctx.backup.restore(backup.path, self.ctx.username)
+        except Exception as exc:  # noqa: BLE001 - report, never leave the user guessing
+            self.ctx.toast(f"Restore failed: {exc}", "error")
+            return
+        info(self, "Restore complete", f"Restored {backup.path.name}.\nPrevious data saved as {safety.name}.")
+        self.ctx.app.show_login()
 
     def import_v3(self) -> None:
         initial = LEGACY_DATA_DIR_WINDOWS if LEGACY_DATA_DIR_WINDOWS.exists() else Path.home()

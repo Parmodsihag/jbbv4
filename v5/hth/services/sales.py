@@ -88,10 +88,30 @@ class SaleResult:
     cost: float | None = None
     margin: float | None = None
     short_qty: float = 0.0
+    # what undo() needs to reverse the entry exactly
+    kind: str = ""
+    customer_id: int | None = None
+    item_id: int | None = None
+    stock_tx_id: int | None = None
+    finance_entry_id: int | None = None
+    previous_last_value: float | None = None
+    new_last_value: float | None = None
+    description: str = ""
 
     @property
     def is_crop(self) -> bool:
         return self.crop_lot_id is not None or self.crop_sale_id is not None
+
+
+@dataclass(frozen=True)
+class SaleLine:
+    """One line of a multi-line entry (several items for the same account)."""
+
+    item_name: str
+    quantity: str | float
+    price: str | float
+    item_id: int | None = None
+    unit: str | None = None
 
 
 def _qty_text(q: float) -> str:
@@ -200,8 +220,10 @@ class SalesService:
             ]
 
             inventory_updated = False
+            stock_tx_id = finance_entry_id = None
+            previous_last_value = item.last_value if item is not None else None
             if item is not None:
-                self.inventory.add_item_transaction(
+                stock_tx_id = self.inventory.add_item_transaction(
                     item.id,
                     date,
                     received=stock_qty if kind == "M" else 0,
@@ -216,7 +238,7 @@ class SalesService:
             elif money_account_id is not None and tx_ids:
                 flow = money_flow_handler(self.db)
                 if flow is not None:
-                    flow.record_customer_flow(
+                    finance_entry_id = flow.record_customer_flow(
                         "receipt" if kind == "M" else "payment",
                         date,
                         money_account_id,
@@ -240,6 +262,14 @@ class SalesService:
             stock_qty,
             stock_unit,
             money_account_id=None if item is not None else money_account_id,
+            kind=kind,
+            customer_id=customer_id,
+            item_id=item.id if item is not None else None,
+            stock_tx_id=stock_tx_id,
+            finance_entry_id=finance_entry_id,
+            previous_last_value=previous_last_value,
+            new_last_value=price_f if item is not None else None,
+            description=detail,
         )
 
     def _record_crop(
@@ -288,6 +318,12 @@ class SalesService:
                     lot.qty,
                     normalize(item.unit),
                     crop_lot_id=lot.id,
+                    kind=kind,
+                    customer_id=customer_id,
+                    item_id=item.id,
+                    previous_last_value=item.last_value,
+                    new_last_value=price,
+                    description=f"crop purchase lot #{lot.id}",
                 )
             sale = crop.record_sale(
                 date,
@@ -313,4 +349,93 @@ class SalesService:
                 cost=sale.cost,
                 margin=sale.margin,
                 short_qty=sale.short_qty,
+                kind=kind,
+                customer_id=customer_id,
+                item_id=item.id,
+                previous_last_value=item.last_value,
+                new_last_value=price,
+                description=f"crop sale #{sale.id}",
             )
+
+    # Several lines, one account ------------------------------------------------------
+    def record_lines(
+        self,
+        kind: str,
+        date: str,
+        customer_id: int,
+        lines: list[SaleLine],
+        tag: str | int,
+        username: str,
+        money_account_id: int | None = None,
+    ) -> list[SaleResult]:
+        """Record several items for one account as one atomic unit: if any line is invalid
+        nothing is written.  Crop items are refused here (they need lot / FIFO details -
+        enter them one at a time).  ``money_account_id`` applies to lines without a stock item."""
+        if not lines:
+            raise ValidationError("Add at least one line.")
+        if str(tag).strip()[:1] == Tag.SETTLE.value and len(lines) > 1:
+            raise ValidationError("A settlement (tag 0) closes the account - record it as a single entry.")
+        results = []
+        with self.db.connect():
+            for n, line in enumerate(lines, start=1):
+                item = self.inventory.get_item(line.item_id) if line.item_id is not None else None
+                if item is not None and item.item_type == CROP_ITEM_TYPE:
+                    raise ValidationError(f"Line {n}: crop trades are entered one at a time.")
+                try:
+                    results.append(
+                        self.record(
+                            kind,
+                            date,
+                            customer_id,
+                            line.item_name,
+                            line.quantity,
+                            line.price,
+                            tag,
+                            username,
+                            item_id=line.item_id,
+                            unit=line.unit,
+                            money_account_id=money_account_id if line.item_id is None else None,
+                        )
+                    )
+                except ValidationError as exc:
+                    raise ValidationError(f"Line {n} ({line.item_name}): {exc}") from exc
+        return results
+
+    # Undo ----------------------------------------------------------------------------
+    def undo(self, results: list[SaleResult], username: str) -> int:
+        """Reverse entries made by :meth:`record` / :meth:`record_lines`: their ledger rows,
+        stock movement, cash-book entry (or crop lot / sale), and the item's last price if
+        nothing has changed it since.  All or nothing.  Returns the entries reversed."""
+        undone = 0
+        with self.db.connect():
+            for r in reversed(results):
+                if r.is_crop:
+                    crop = crop_handler(self.db)
+                    if crop is None:
+                        raise ValidationError("Crop module not available - delete the trade in Crop Trade.")
+                    if r.crop_lot_id is not None:
+                        crop.delete_lot(r.crop_lot_id, username)
+                    else:
+                        crop.delete_sale(r.crop_sale_id, username)
+                else:
+                    for tx_id in r.transaction_ids:
+                        self.db.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
+                    if r.stock_tx_id is not None:
+                        self.db.execute("DELETE FROM item_transactions WHERE id = ?", (r.stock_tx_id,))
+                    if r.finance_entry_id is not None and self.db.fetchone(
+                        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'finance_entries'"
+                    ):
+                        self.db.execute("DELETE FROM finance_entries WHERE id = ?", (r.finance_entry_id,))
+                if r.item_id is not None and r.previous_last_value is not None:
+                    self.db.execute(
+                        "UPDATE items SET last_value = ? WHERE id = ? AND last_value = ?",
+                        (r.previous_last_value, r.item_id, r.new_last_value),
+                    )
+                self.accounts.audit.log(
+                    AuditCode.DELETE,
+                    f"undo {'sale' if r.kind == 'P' else 'receive'}: customer {r.customer_id}, "
+                    f"{r.description or r.transaction_ids}, {r.amount}",
+                    username,
+                )
+                undone += 1
+        return undone

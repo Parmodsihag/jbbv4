@@ -53,3 +53,26 @@ def test_fresh_database_takes_no_pre_migration_backup(tmp_path):
     db = Database(tmp_path / "hth.db")
     assert schema.initialize(db, tmp_path / "backups") is None
     assert not (tmp_path / "backups").exists()
+
+
+def test_first_start_copies_v4_database_read_only(tmp_path):
+    from hth.config import Settings, copy_previous_version, previous_version_db
+    from hth.services.accounts import AccountsService
+
+    v4_dir, v5_dir = tmp_path / "v4", tmp_path / "v5"
+    v4 = Database(v4_dir / "hth.db")
+    schema.initialize(v4)
+    AccountsService(v4).add_customer("ram", "", 500, "2026-01-01")
+    before = (v4_dir / "hth.db").read_bytes()
+
+    settings = Settings(v5_dir)
+    settings.ensure_dirs()
+    source = previous_version_db(settings, previous_dir=v4_dir)
+    assert source == v4_dir / "hth.db"
+    copy_previous_version(source, settings.db_path)
+    v5 = Database(settings.db_path)
+    schema.initialize(v5, settings.backup_dir)
+    assert [c.name for c in AccountsService(v5).list_customers()] == ["RAM"]
+    assert (v4_dir / "hth.db").read_bytes() == before  # v4 untouched
+    # once v5 has its own database nothing is copied again
+    assert previous_version_db(settings, previous_dir=v4_dir) is None

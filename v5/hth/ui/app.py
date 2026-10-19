@@ -199,6 +199,26 @@ class App(ctk.CTk):
         self._last_input = time.monotonic()
         self.navigate("dashboard")
         self.toast(f"Welcome, {user.full_name or user.username}", "success")
+        self.after(600, self._upgrade_notice)
+
+    def _upgrade_notice(self) -> None:
+        """Once, after the first v5 start copied v4's data: say where it came from."""
+        from hth.services.settings import SettingsService
+        from hth.ui.widgets.dialogs import info
+
+        prefs = SettingsService(self.ctx.db)
+        source = prefs.get("upgrade.copied_from")
+        if not source or prefs.get("upgrade.notice_shown") == "1" or not self.is_signed_in:
+            return
+        prefs.set("upgrade.notice_shown", "1")
+        info(
+            self,
+            f"Welcome to {__app_name__} {__version__}",
+            f"Your data was copied from\n{source}\n\n"
+            f"v5 keeps its own data in\n{self.ctx.settings.data_dir}\n\n"
+            "The v4 files were only read, never changed - v4 still opens its data as before. "
+            "Entries made in v5 are not visible in v4.",
+        )
 
     def logout(self) -> None:
         self.ctx.audit.log("08", f"logout {self.ctx.username}", self.ctx.username)
