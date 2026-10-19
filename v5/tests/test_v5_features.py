@@ -147,8 +147,10 @@ def test_item_profit_and_reorder(accounts, inventory, sales, reports, db):
     rows = {r[1]: r for r in reports.item_profit(today, today)}
     assert rows["UREA"][3:] == (8, 2400, 2000, 400, 16.7)
     assert rows["DAP"][6] == -100  # sold below cost
+    cash = inventory.add_item("CASH", unit="INR", opening_quantity=0)  # v3 kept money as an item
+    sales.record("P", today, c.id, "CASH", 500, 1, "1", "admin", item_id=cash.id)
     suggestions = InsightsService(db).reorder_suggestions()
-    assert [s.name for s in suggestions] == ["UREA"]  # 8 sold in 30 days, 2 left
+    assert [s.name for s in suggestions] == ["UREA"]  # 8 sold in 30 days, 2 left; CASH is not stock
     assert suggestions[0].in_stock == 2 and suggestions[0].days_left == 7.5
 
 
