@@ -12,11 +12,15 @@ Business rules carried over from v3:
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import logging
+import math
 import random
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -232,7 +236,11 @@ def normalize_month(month_year: str) -> str:
 
 
 def _n(v: float) -> str:
-    return f"{v:g}" if abs(v) < 1e15 else str(v)
+    """Number as printed on the invoice: exact to 4 dp, trailing zeros dropped, never an exponent.
+
+    (``:g`` keeps only 6 significant digits, so 19999.99 printed as 20000 and 1234567 as 1.23457e+06.)
+    """
+    return f"{round(float(v), 4) + 0.0:.4f}".rstrip("0").rstrip(".")
 
 
 class BillsService:
@@ -272,8 +280,12 @@ class BillsService:
             rate_f = float(rate)
         except (TypeError, ValueError) as exc:
             raise ValidationError("Quantity and rate must be numbers.") from exc
+        if not (math.isfinite(qty) and math.isfinite(rate_f)):
+            raise ValidationError("Quantity and rate must be numbers.")
         if qty <= 0:
             raise ValidationError("Quantity must be greater than zero.")
+        if rate_f < 0:  # caught here, not half-way through generating the month
+            raise ValidationError("Rate cannot be negative.")
         with self.db.connect():
             row_id = self.db.execute(
                 "INSERT INTO bill_month_items (month_year, item_id, name, unit, rate, item_type, start_date, batch,"
@@ -316,12 +328,22 @@ class BillsService:
 
     # Bills --------------------------------------------------------------------------------
     def next_bill_number(self, on_date: dt.date | None = None) -> int:
-        row = self.db.fetchone("SELECT MAX(bill_number) AS m FROM bills")
-        if row and row["m"]:
-            return int(row["m"]) + 1
+        """Next number in the financial year of ``on_date`` (default today): 2627001, 2627002, ...
+
+        Each FY (April-March) restarts at 001 under its own prefix.  Past 999 the sequence
+        just grows (26271000) instead of rolling into what looks like another year's prefix.
+        Numbers typed outside the scheme (e.g. 1, 2, 3) do not affect it.
+        """
         d = on_date or dt.date.today()
         fy = d.year if d.month >= 4 else d.year - 1
-        return int(f"{fy % 100:02d}{(fy + 1) % 100:02d}001")  # e.g. 2627001 for FY 2026-27
+        prefix = f"{fy % 100:02d}{(fy + 1) % 100:02d}"  # e.g. 2627 for FY 2026-27
+        row = self.db.fetchone(
+            "SELECT MAX(CAST(substr(CAST(bill_number AS TEXT), 5) AS INTEGER)) AS m FROM bills"
+            " WHERE CAST(bill_number AS TEXT) LIKE ?",
+            (f"{prefix}___%",),
+        )
+        last = int(row["m"]) if row and row["m"] else 0
+        return int(f"{prefix}{last + 1:03d}")
 
     def create_bill(
         self,
@@ -531,23 +553,56 @@ class BillsService:
                 missing.append(package)
         return missing
 
-    def render_docx(self, bill: Bill, force: bool = False) -> Path:
+    @staticmethod
+    def _check_renderable() -> None:
         try:
-            from docxtpl import DocxTemplate
+            import docxtpl  # noqa: F401
         except ImportError as exc:
             raise ValidationError("Cannot create the DOCX: run  pip install docxtpl  and restart.") from exc
         if not TEMPLATE.exists():
             raise ValidationError(f"Invoice template missing: {TEMPLATE}")
 
+    @staticmethod
+    def _fingerprint(context: dict) -> str:
+        """Identifies exactly what a rendered invoice shows (stored in the DOCX properties)."""
+        payload = json.dumps(context, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _rendered_fingerprint(path: Path) -> str | None:
+        try:
+            from docx import Document
+
+            return Document(str(path)).core_properties.identifier or None
+        except Exception:  # noqa: BLE001 - unreadable or pre-fingerprint file: render it again
+            return None
+
+    def render_docx(self, bill: Bill, force: bool = False) -> Path:
+        return self._ensure_docx(bill, force)[0]
+
+    def _ensure_docx(self, bill: Bill, force: bool = False) -> tuple[Path, bool]:
+        """Return (path, rendered_now).
+
+        An existing ``<number>.docx`` is reused only if it was rendered from this exact bill.
+        Files are named by bill number, so one left behind by another bill with the same
+        number (a deleted bill whose file was open in Word, a restored backup) used to be
+        handed out as this bill's invoice.
+        """
+        self._check_renderable()
+        from docxtpl import DocxTemplate
+
         self.bills_dir.mkdir(parents=True, exist_ok=True)
         out = self.bills_dir / f"{bill.bill_number}.docx"
-        if out.exists() and not force:
-            return out
+        context = self.template_context(bill)
+        fingerprint = self._fingerprint(context)
+        if out.exists() and not force and self._rendered_fingerprint(out) == fingerprint:
+            return out, False
         tpl = DocxTemplate(str(TEMPLATE))
-        tpl.render(self.template_context(bill))
+        tpl.render(context)
+        tpl.docx.core_properties.identifier = fingerprint
         tpl.save(str(out))
         self.db.execute("UPDATE bills SET docx_path = ? WHERE id = ?", (str(out), bill.id))
-        return out
+        return out, True
 
     def docx_path(self, bill: Bill) -> Path | None:
         p = self.bills_dir / f"{bill.bill_number}.docx"
@@ -565,12 +620,14 @@ class BillsService:
             raise ValidationError(
                 "PDF export needs the 'docx2pdf' package and Microsoft Word (pip install docx2pdf)."
             ) from exc
-        docx = self.render_docx(bill)
+        docx, rendered_now = self._ensure_docx(bill)
         self.pdf_dir.mkdir(parents=True, exist_ok=True)
         out = self.pdf_dir / f"{bill.bill_number}.pdf"
-        if out.exists() and not force:
+        # A PDF is only as current as the DOCX it came from.
+        if out.exists() and not force and not rendered_now and out.stat().st_mtime >= docx.stat().st_mtime:
             return out
-        convert(str(docx), str(out))
+        with _com_initialized():
+            convert(str(docx), str(out))
         return out
 
     def merge_pdfs(self, from_number: int, to_number: int) -> Path:
@@ -578,7 +635,15 @@ class BillsService:
             from pypdf import PdfWriter
         except ImportError as exc:
             raise ValidationError("Merging needs the 'pypdf' package (pip install pypdf).") from exc
-        numbers = [n for n in range(int(from_number), int(to_number) + 1) if self.pdf_path(n)]
+        # Only bills that exist: a leftover PDF of a deleted bill must not end up in the merge.
+        numbers = [
+            r[0]
+            for r in self.db.fetchall(
+                "SELECT bill_number FROM bills WHERE bill_number BETWEEN ? AND ? ORDER BY bill_number",
+                (int(from_number), int(to_number)),
+            )
+            if self.pdf_path(r[0])
+        ]
         if not numbers:
             raise ValidationError("No PDFs found in that range - make PDFs first.")
         self.merged_dir.mkdir(parents=True, exist_ok=True)
@@ -627,7 +692,10 @@ class BillsService:
             for item_id in chosen:
                 left = remaining[item_id]
                 x = per_bill[item_id]
-                take = float(rng.randint(max(1, x - 2), max(1, min(x + 1, int(left)))))
+                # Once less than a usual bill's worth is left, cap the low end too, or
+                # randint(low, high) gets low > high and raises "empty range for randrange".
+                high = max(1, min(x + 1, int(left)))
+                take = float(rng.randint(min(max(1, x - 2), high), high))
                 if left - take < 1:  # do not strand a fraction
                     take = left
                 lines[item_id] = take
@@ -671,38 +739,60 @@ class BillsService:
             raise ValidationError(f"No items entered for {month_year}.")
         if int(number_of_bills) <= 0:
             raise ValidationError("Number of bills must be positive.")
+        if render:
+            self._check_renderable()  # fail before creating anything, not after the commit
         start, end = _month_bounds(month_year)
         dates = self.distribute_dates(int(number_of_bills), start, end, rng)
         plan, leftovers = self.distribute_quantities(
             [(it.id, it.quantity, parse_date(it.start_date)) for it in items], dates, rng
         )
         by_id = {it.id: it for it in items}
-        result = BatchResult(first_number=int(start_number))
-        number = int(start_number)
-        for idx, (date, lines) in enumerate(plan):
-            bill = self.create_bill(
-                date.strftime(DATE_FMT),
-                rng.choice(RANDOM_NAMES),
-                address,
-                [
-                    dict(
-                        name=by_id[i].name,
-                        unit=by_id[i].unit,
-                        batch=by_id[i].batch,
-                        expiry_date=by_id[i].expiry_date,
-                        rate=by_id[i].rate,
-                        item_type=by_id[i].item_type,
-                        quantity=q,
-                    )
-                    for i, q in lines.items()
-                ],
-                username,
-                bill_number=number,
-                source="batch",
+        first = int(start_number)
+        last = first + len(plan) - 1
+        clash = [
+            r[0]
+            for r in self.db.fetchall(
+                "SELECT bill_number FROM bills WHERE bill_number BETWEEN ? AND ? ORDER BY bill_number", (first, last)
             )
-            result.created += 1
-            result.last_number = number
-            number += 1
+        ]
+        if clash:
+            raise ValidationError(
+                f"This batch needs bill numbers {first}-{last}, but {', '.join(map(str, clash[:5]))}"
+                f"{' and more' if len(clash) > 5 else ''} already exist. Choose another start number."
+            )
+        result = BatchResult(first_number=first)
+        bills: list[Bill] = []
+        # One transaction for the whole month: a failure part-way rolls every bill back
+        # instead of leaving a partial month that then blocks a retry.
+        with self.db.connect():
+            for number, (date, lines) in enumerate(plan, start=first):
+                bills.append(
+                    self.create_bill(
+                        date.strftime(DATE_FMT),
+                        rng.choice(RANDOM_NAMES),
+                        address,
+                        [
+                            dict(
+                                name=by_id[i].name,
+                                unit=by_id[i].unit,
+                                batch=by_id[i].batch,
+                                expiry_date=by_id[i].expiry_date,
+                                rate=by_id[i].rate,
+                                item_type=by_id[i].item_type,
+                                quantity=q,
+                            )
+                            for i, q in lines.items()
+                        ],
+                        username,
+                        bill_number=number,
+                        source="batch",
+                    )
+                )
+            self.audit.log(AuditCode.MODIFY, f"bills batch {month_year}: {len(bills)} bills from {first}", username)
+        result.created = len(bills)
+        result.last_number = bills[-1].bill_number if bills else 0
+        # Rendering happens after the commit, so slow DOCX work never holds the write lock.
+        for idx, bill in enumerate(bills):
             if render:
                 if bill.grand_total < MAX_RENDER_TOTAL:
                     self.render_docx(bill)
@@ -710,16 +800,32 @@ class BillsService:
                 else:
                     result.not_rendered.append(bill.bill_number)
             if progress:
-                progress(idx + 1, len(plan))
+                progress(idx + 1, len(bills))
         result.unsold = {by_id[i].name: q for i, q in leftovers.items()}
-        self.audit.log(
-            AuditCode.MODIFY, f"bills batch {month_year}: {result.created} bills from {start_number}", username
-        )
         return result
 
     def open_folder(self) -> Path:
         self.bills_dir.mkdir(parents=True, exist_ok=True)
         return self.bills_dir
+
+
+@contextmanager
+def _com_initialized() -> Iterator[None]:
+    """docx2pdf drives Word over COM but never initialises COM, which every thread must do.
+
+    Without this, "PDF + merge range" (a worker thread) failed with "CoInitialize has not
+    been called".  On the Tk thread COM is already up; the extra init/uninit pair is harmless.
+    """
+    if not sys.platform.startswith("win"):
+        yield
+        return
+    import pythoncom  # pywin32, installed with docx2pdf on Windows
+
+    pythoncom.CoInitialize()
+    try:
+        yield
+    finally:
+        pythoncom.CoUninitialize()
 
 
 def word_available() -> bool:
