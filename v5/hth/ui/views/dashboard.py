@@ -100,7 +100,7 @@ class DashboardView(BaseView):
             krar,
             [
                 Column("name", "Customer", 130, stretch=True),
-                Column("date", "Promised", 76),
+                Column("date", "Date", 76),
                 Column("balance", "Balance", 92, "e", "money"),
             ],
             row_tags=lambda r: ["neg"] if r[3] == "Overdue" else (["warn"] if r[3] == "Today" else []),
