@@ -13,6 +13,7 @@ from hth.modules.bills.service import (
     MAX_RENDER_TOTAL,
     BillsService,
     compute_line,
+    normalize_month,
     totals,
     word_available,
 )
@@ -632,8 +633,15 @@ class BatchPanel(ctk.CTkFrame):
         )
         self.title.configure(text=f"Items for {self.month.get()}")
         if not self.start_no.get():
-            self.start_no.set(str(self.svc.next_bill_number()))
+            self.start_no.set(str(self._suggested_start()))
         self.start.set(f"{self.month.get()}-01" if len(self.month.get()) == 7 else self.start.get())
+
+    def _suggested_start(self) -> int:
+        """Next number in the FY of the month being generated (March bills made in April stay in March's FY)."""
+        try:
+            return self.svc.next_bill_number(dt.date.fromisoformat(f"{normalize_month(self.month.get())}-01"))
+        except ValidationError:
+            return self.svc.next_bill_number()
 
     def add_item(self) -> None:
         name = self.item.get_text()
@@ -700,7 +708,7 @@ class BatchPanel(ctk.CTkFrame):
             msg += "\nLeft over: " + ", ".join(f"{k} {fmt_qty(v)}" for k, v in res.unsold.items())
         self.status.configure(text=msg)
         self.ctx.toast(f"{res.created} bills created", "success")
-        self.start_no.set(str(self.svc.next_bill_number()))
+        self.start_no.set(str(self._suggested_start()))
         self.reload()
         self.view.browse.reload()
         info(self, "Batch complete", msg + f"\n\nFiles: {self.svc.open_folder()}")
