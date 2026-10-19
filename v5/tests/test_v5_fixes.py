@@ -76,3 +76,32 @@ def test_first_start_copies_v4_database_read_only(tmp_path):
     assert (v4_dir / "hth.db").read_bytes() == before  # v4 untouched
     # once v5 has its own database nothing is copied again
     assert previous_version_db(settings, previous_dir=v4_dir) is None
+
+
+def test_ledger_edits_keep_the_cash_book_in_step(accounts, sales, db):
+    from hth.modules.finance.service import FinanceService
+
+    fin = FinanceService(db)
+    fin.ensure_defaults()
+    cash = fin.default_account_id()
+    c = accounts.add_customer("ram", "", 1000, "2026-08-01")
+    r = sales.record("M", "2026-08-29", c.id, "CASH", 1, 400, "1", "admin", money_account_id=cash)
+    tx_id = r.transaction_ids[0]
+    accounts.update_transaction(tx_id, "2026-08-30", "CASH", 450, "M", "1", "admin")
+    assert fin.balance(cash) == 450 and fin.get_entry(r.finance_entry_id).date == "2026-08-30"
+    accounts.update_transaction(tx_id, "2026-08-30", "CASH", 450, "P", "1", "admin")  # now money paid out
+    assert fin.balance(cash) == -450
+    accounts.delete_transaction(tx_id, "admin")
+    assert fin.balance(cash) == 0 and fin.get_entry(r.finance_entry_id) is None
+
+
+def test_crop_ledger_rows_are_changed_in_crop_trade_only(accounts, inventory, sales):
+    farmer = accounts.add_customer("farmer", "", 0)
+    wheat = inventory.add_item("WHEAT", unit="KG", item_type="C")
+    lot = sales.record("M", "2026-08-01", farmer.id, wheat.name, 100, 25, "2", "admin", item_id=wheat.id)
+    tx_id = lot.transaction_ids[0]
+    with pytest.raises(ValidationError, match="crop purchase lot"):
+        accounts.update_transaction(tx_id, "2026-08-01", "x", 1, "M", "2", "admin")
+    with pytest.raises(ValidationError, match="crop purchase lot"):
+        accounts.delete_transaction(tx_id, "admin")
+    assert accounts.get_transaction(tx_id).amount == 2500

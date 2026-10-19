@@ -429,7 +429,11 @@ class LedgerPanel(ctk.CTkFrame):
             "Delete entry",
             f"Delete entry #{tx.id}\n{tx.date}  {tx.description}  {money(tx.amount)} ?",
         ):
-            self.ctx.accounts.delete_transaction(tx.id, self.ctx.username)
+            try:
+                self.ctx.accounts.delete_transaction(tx.id, self.ctx.username)
+            except ValidationError as exc:
+                self.ctx.toast(str(exc), "error")
+                return
             self.ctx.toast("Entry deleted", "success")
             self.load(self.customer.id)
 
