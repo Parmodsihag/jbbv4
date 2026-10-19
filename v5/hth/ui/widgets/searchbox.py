@@ -13,6 +13,33 @@ from hth.ui import theme
 Suggestion = tuple[Any, str]
 
 
+def rank_matches(term: str, data: list[Suggestion]) -> list[Suggestion]:
+    """Suggestions containing every word of ``term`` (any order), best first.
+
+    "ram rohtak" finds "12 RAM KUMAR ROHTAK".  Order: exact id, label starting with the
+    term, a word starting with it, then the rest - each group in the original order."""
+    words = term.lower().split()
+    if not words:
+        return []
+    out = []
+    for pos, (key, label) in enumerate(data):
+        low = label.lower()
+        if not all(w in low for w in words):
+            continue
+        head = low.split(" ", 1)
+        if str(key).lower() == term.strip().lower() or head[0] == words[0]:
+            rank = 0
+        elif len(head) > 1 and head[1].startswith(term):
+            rank = 1
+        elif any(part.startswith(words[0]) for part in low.split()):
+            rank = 2
+        else:
+            rank = 3
+        out.append((rank, pos, (key, label)))
+    out.sort(key=lambda t: (t[0], t[1]))
+    return [s for _r, _p, s in out]
+
+
 class SearchBox(ctk.CTkFrame):
     MAX_ROWS = 8
 
@@ -95,7 +122,7 @@ class SearchBox(ctk.CTkFrame):
         if not term:
             self.hide()
             return
-        self._filtered = [s for s in self._data if term in s[1].lower()][:200]
+        self._filtered = rank_matches(term, self._data)[:200]
         if self._filtered:
             self._show()
         else:

@@ -399,3 +399,29 @@ def test_v5_sales_lines_undo_lock_and_day_change(app, monkeypatch):
             continue
         rv.select(spec)
         assert _wait(app, lambda: not rv.table.footer.cget("text").startswith("Running")), spec.key
+
+
+def test_v5_ledger_views_and_snapshot(app):
+    ctx = app.ctx
+    c = ctx.accounts.add_customer("RAM", "ROHTAK 9812345678", 1000, "2024-01-01")
+    ctx.accounts.add_transaction(c.id, "2025-02-01", "UREA", 500, "P", "1")
+    ctx.accounts.record_settlement(c.id, "2025-03-01", "CASH", 1500, "M", "admin")
+    ctx.accounts.add_transaction(c.id, today_str(), "DAP", 300, "P", "1")
+    _login(app, "admin", "admin")
+    app.navigate("customers", customer_id=c.id)
+    _pump(app)
+    ledger = app._views["customers"].ledger_panel
+    assert len(ledger.table.rows) == 6
+    ledger.period.set("Current period")
+    ledger._apply_view()
+    assert [r[2] for r in ledger.table.rows] == ["DAP"]
+    ledger.period.set("All")
+    ledger._apply_view()
+    ledger.table.filter("urea")
+    assert [r[2] for r in ledger.table.rows] == ["UREA"]
+    ledger.table.filter("")
+    ledger.new_entry()
+    _pump(app)
+    sales = app._views["sales"]
+    assert app._active == "sales" and sales.account.get_key() == c.id
+    assert sales.snapshot.customer_id == c.id and sales.snapshot.table.rows[0][1] == "DAP"

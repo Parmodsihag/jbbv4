@@ -281,3 +281,36 @@ def test_restore_backup_round_trip_with_safety_copy(tmp_path):
     newer.execute("PRAGMA user_version = 999")
     with pytest.raises(ValueError, match="newer version"):
         svc.inspect(tmp_path / "newer.db")
+
+
+def test_balance_message_for_every_kind_of_balance(accounts, db):
+    from hth.services.reminders import ReminderService
+
+    r = ReminderService(db)
+    owes = accounts.add_customer("ram", "village 9812345678", 1500, "2026-08-29")
+    owed = accounts.add_customer("shyam", "", 700, "2026-08-29", tx_type="M")
+    settled = accounts.add_customer("mohan", "", 0)
+    m = r.balance_message(owes.id, TODAY)
+    assert "Rs 1,500.00" in m.text and m.whatsapp_url and "9812345678" in m.whatsapp_url
+    assert "owes you Rs 700.00" in r.balance_message(owed.id, TODAY).text
+    assert "fully settled" in r.balance_message(settled.id, TODAY).text
+
+
+def test_rank_matches_any_word_order():
+    from hth.ui.widgets.searchbox import rank_matches
+
+    data = [(12, "12 RAM KUMAR ROHTAK"), (3, "3 SHRI RAM HISAR"), (120, "120 RAMESH X"), (7, "7 MOHAN ROHTAK")]
+    assert [k for k, _ in rank_matches("ram", data)] == [12, 120, 3]
+    assert [k for k, _ in rank_matches("rohtak ram", data)] == [12]
+    assert [k for k, _ in rank_matches("12", data)][0] == 12
+    assert rank_matches("  ", data) == []
+
+
+def test_customer_search_matches_all_words(accounts, db):
+    from hth.services.search import SearchService
+
+    a = accounts.add_customer("ram kumar", "rohtak", 0)
+    accounts.add_customer("ram singh", "hisar", 0)
+    hits = SearchService(db).search("rohtak ram", kinds={"customer"})
+    assert [h.id for h in hits] == [a.id]
+    assert SearchService(db).search(str(a.id), kinds={"customer"})[0].id == a.id

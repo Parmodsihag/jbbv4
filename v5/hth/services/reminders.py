@@ -86,5 +86,22 @@ class ReminderService:
         )
         return Reminder(c.id, c.name, balance, promised, days, extract_phone(c.other_details), text)
 
+    def balance_message(self, customer_id: int, today: dt.date | None = None) -> Reminder:
+        """'Your balance as of <date> is ...' - for any account, promise or not."""
+        today = today or dt.date.today()
+        c = self.accounts.get_customer(customer_id)
+        if c is None:
+            raise ValueError("Customer not found.")
+        balance = self.accounts.get_balance(customer_id, today)
+        shop = self.company.profile()
+        if balance > 0:
+            line = f"your balance at {shop.name.title()} as of {today:%d-%m-%Y} is Rs {numbers.amount(balance)}."
+        elif balance < 0:
+            line = f"as of {today:%d-%m-%Y} {shop.name.title()} owes you Rs {numbers.amount(-balance)}."
+        else:
+            line = f"your account at {shop.name.title()} is fully settled as of {today:%d-%m-%Y}. Thank you."
+        text = f"Namaste {c.name.title()} ji, {line}\n- {shop.name.title()}, {shop.phone}"
+        return Reminder(c.id, c.name, balance, today.isoformat(), 0, extract_phone(c.other_details), text)
+
     def for_bucket(self, bucket: str = "past", today: dt.date | None = None) -> list[Reminder]:
         return [self.build(e.customer_id, e.last_date, today) for e in self.krar.entries(bucket, today)]
