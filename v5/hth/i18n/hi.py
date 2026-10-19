@@ -263,7 +263,7 @@ HI: dict[str, str] = {
     "0-30 days": "0-30 दिन", "31-90 days": "31-90 दिन", "91-180 days": "91-180 दिन", "180+ days": "180+ दिन",
     "Customers": "ग्राहक", "Audit": "ऑडिट",
     # audit codes, severities, areas, finance kinds, roles
-    "Account Added": "खाता जोड़ा", "Item Added": "सामान जोड़ा", "Modify": "बदलाव", "Login": "लॉगिन", "Rate": "भाव",
+    "Assistant": "सहायक", "Assistant (सहायक)": "सहायक", "Install model…": "मॉडल लगाएँ…", "Remove model": "मॉडल हटाएँ", "Installing the model…": "मॉडल लग रहा है…", "Model installed: {}": "मॉडल लग गया: {}", "Could not install the model: {}": "मॉडल नहीं लग पाया: {}", "Remove the assistant's language model?": "सहायक का भाषा मॉडल हटाएँ?", "Model removed": "मॉडल हटा दिया", "Could not remove the model: {}": "मॉडल नहीं हट पाया: {}", "Choose the assistant model (hth_assistant_model.zip)": "सहायक का मॉडल चुनें (hth_assistant_model.zip)", "Assistant model": "सहायक मॉडल", "Ask about the shop in Hindi, Hinglish or English": "दुकान के बारे में हिंदी या अंग्रेज़ी में पूछिए", "Account Added": "खाता जोड़ा", "Item Added": "सामान जोड़ा", "Modify": "बदलाव", "Login": "लॉगिन", "Rate": "भाव",
     "ERROR": "त्रुटि", "WARN": "चेतावनी", "INFO": "सूचना", "Ledger": "खाता-बही",
     "Negative stock": "माइनस स्टॉक", "Entry has an invalid date": "एंट्री की तारीख गलत", "Entry dated in the future": "एंट्री आगे की तारीख की",
     "Entry dated before 2000": "एंट्री 2000 से पहले की", "Entry with zero amount": "शून्य रकम की एंट्री", "Entry without description": "बिना विवरण की एंट्री",

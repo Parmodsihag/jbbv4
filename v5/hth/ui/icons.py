@@ -33,6 +33,7 @@ _ICONS: dict[str, tuple[str, str]] = {
     "history": ("", "↺"),
     "export": ("", "⤓"),
     "calculator": ("", "🖩"),
+    "assistant": ("", "💬"),
 }
 
 

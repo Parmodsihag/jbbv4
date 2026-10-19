@@ -1,5 +1,45 @@
 # Changelog
 
+## 5.2.0 — 2026-10-20
+
+### Assistant (सहायक) - ask about the shop in plain words
+- New screen **Assistant** (Alt+H, second in the sidebar): type a question in Hindi,
+  Hinglish or English - *"Ramesh ka last month ka hisab btao"*, *"यूरिया कितना बचा है"*,
+  *"whose promises are overdue?"* - and get the answer as a short card with a table and a
+  button to open the matching screen or report. Answers come in the language of the
+  question. Big text, tap-able choices, suggestion chips; read-only - it never changes data.
+- **Asks back** when a question is unclear: three customers called Ramesh → *"कौन से
+  रमेश?"* with the three (village / phone shown); reply with the number, *"rohtak wala"*,
+  *"dusra"* or the last digits of the phone. A missing name is asked for. Once answered the
+  question leaves the conversation; only a quick follow-up within two minutes reuses it
+  (*"aur pichle mahine?"*, *"and Suresh?"*, *"uska phone number"*). *"chhodo"* cancels.
+- 25 read-only answers: balance, ledger for a period, phone, interest, a customer's karar;
+  overdue / today's / coming karar; biggest debtors, collection list, total receivable /
+  payable; a day's or a period's sales, day book; stock, price and sales of an item; low
+  stock, reorder, expiring; profit, expenses, cash and bank (finance module); what needs
+  attention. Each checks the user's role (an employee is not shown profit).
+- **System 1** (built in, no download): names are found in the question against the shop's
+  own customers and items (English and Hindi spellings, typos, villages, phone digits) and
+  replaced by placeholders; a NumPy classifier trained on a synthetic corpus of ~560
+  question templates in three styles picks the intent in under a millisecond; periods
+  (*pichle mahine*, *इस हफ्ते*, *15 tarikh*, *last 30 days*), numbers and categories are
+  parsed by rules. Trained once on first use (seconds) and cached in `<data>/assistant/`.
+  Held-out accuracy on phrasings it never saw: 95 % (Hindi 99 %, Hinglish 96 %,
+  English 93 %); on the real shop data, full customer names are found 99.7 % of the time.
+- **System 2** (optional): a small language model (FunctionGemma 270M or Qwen2.5 0.5B,
+  LoRA fine-tuned) consulted only when System 1 is unsure. Train it with the single Kaggle
+  cell `tools/assistant/kaggle_train_cell.py` (paste, run, download the zip) and install it
+  in **Settings → Assistant → Install model…**; it needs `pip install llama-cpp-python`.
+  Loaded on first use, unloaded after 10 idle minutes. Without it the assistant asks
+  *"did you mean …"* instead.
+- Every answer is logged in the audit log (code 13) with the tool and its arguments - the
+  question text and names are not.
+- `tools/assistant/eval.py` (intent accuracy, 3-fold) and `tools/assistant/eval_names.py`
+  (name finding on a database, opened read-only, totals only).
+- The core (`hth/assistant/core.py`, `Assistant.ask(text, session) → Reply`) has no Tk in
+  it, so a WhatsApp / Telegram bot or a voice loop can use it later. The 🎤 button is a
+  placeholder for voice input.
+
 ## 5.1.0 — 2026-10-20
 
 ### Hindi (हिन्दी)

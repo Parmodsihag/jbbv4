@@ -204,6 +204,40 @@ Hindi at once. It is shop-wide and remembered.
   reminders use a separate Hindi template (Settings → Payment reminders, while in Hindi).
 * Chart text stays Latin - matplotlib cannot draw Devanagari correctly.
 
+## Assistant (सहायक)
+
+**Alt+H** opens a chat where you ask about the shop the way you would ask a person - in
+Hindi, Hinglish or English - and the answer comes back in the same language:
+
+| ask | get |
+|---|---|
+| *Ramesh ka last month ka hisab btao* | "कौन से रमेश?" with every Ramesh (village / phone), then that ledger for September |
+| *यूरिया कितना बचा है* / *dap ka bhav* | stock / selling price of the item |
+| *kiske karar ki tarikh nikal gayi* | overdue promises with balances |
+| *pichle mahine kitni bikri hui*, then *aur is mahine?* | sales of each period |
+| *sabse bade 10 bakayedar*, *collection list*, *kya mangwana hai* | the lists, with a button to the full report |
+
+It only **looks things up** - nothing is ever changed. Unclear questions are asked back
+(reply with the number, *rohtak wala*, *dusra*, or phone digits; *chhodo* cancels); an
+answered question is forgotten, except that a follow-up within two minutes (*aur …*,
+*uska …*) reuses it. Answers respect the user's role.
+
+How it works (details in `docs/AI_CHAT_DESIGN.md`):
+
+* **System 1** (always on, nothing to install): names are matched against the shop's own
+  customers and items and replaced by `<C1>` / `<I1>`; a small NumPy classifier trained on
+  generated questions picks what is being asked; rules read periods, days and numbers.
+  It trains itself the first time the screen opens (seconds; cached in `<data>/assistant/`).
+* **System 2** (optional): a fine-tuned small language model for questions System 1 is not
+  sure about. Train it free on Kaggle: open a GPU notebook with Internet on, paste
+  `tools/assistant/kaggle_train_cell.py` into one cell, run it (~40 min), download
+  `hth_assistant_model.zip`, then **Settings → Assistant → Install model…**. Running it needs
+  `pip install llama-cpp-python` on the shop PC. No shop data is used for training.
+* Check quality with `python tools/assistant/eval.py` (questions it never saw) and
+  `python tools/assistant/eval_names.py` (finds your real customers; read-only, prints only
+  totals). After changing `hth/assistant/data.py`, run
+  `python tools/assistant/build_kaggle_cell.py`.
+
 ## Business rules (unchanged from v3)
 
 | rule | detail |
@@ -329,6 +363,7 @@ suggestions, WhatsApp reminders. Still open, roughly in order of value:
 run.py                      launcher
 tools/migrate_v3.py         v3 → v4 import (writes migration_report.txt)
 tools/check_data.py         data-quality findings for the live database
+tools/assistant/            eval.py, eval_names.py, the Kaggle training cell and its builder
 hth/
   config.py                 data folder resolution, Settings
   logging_setup.py          rotating file log in <data>/logs
@@ -342,6 +377,9 @@ hth/
                             audit, auth, permissions, export, integrity (data checks),
                             insights (Needs attention), preferences, backup/restore,
                             slips (counter receipts), statements, reminders, search
+  assistant/                chat assistant: normalize (language, periods), entities (names,
+                            ask-back), system1 (classifier), system2 (optional GGUF model),
+                            tools (read-only answers), core (dialog), data (training corpus)
   migration/from_v3.py      legacy importer
   ui/                       customtkinter app: theme, icons, widgets, views, app shell
   modules/                  optional feature modules (bills, crop trading) – see README there

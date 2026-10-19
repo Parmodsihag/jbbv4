@@ -1,0 +1,331 @@
+"""Assistant: ask about the shop in Hindi, Hinglish or English - big text, few buttons.
+
+The screen only draws; :mod:`hth.assistant.core` does the understanding and answering (the
+same object a WhatsApp / Telegram bot or a voice loop will use later).  Answers are read-only.
+"""
+
+from __future__ import annotations
+
+import logging
+
+import customtkinter as ctk
+
+from hth import i18n
+from hth.assistant.core import Assistant, Reply, Session
+from hth.assistant.system2 import LocalModel, models_dir
+from hth.i18n import Raw
+from hth.ui import theme
+from hth.ui.format import money, qty
+from hth.ui.views.base import BaseView
+from hth.ui.widgets.forms import primary_button, secondary_button
+
+log = logging.getLogger(__name__)
+
+MAX_BUBBLES = 60
+MAX_ROWS = 12
+
+
+def _t(en: str, hi: str) -> Raw:
+    """Interface text for this screen, already in the interface language."""
+    return Raw(hi if i18n.is_hindi() else en)
+
+
+class AssistantView(BaseView):
+    key = "assistant"
+    title = "Assistant"
+    permission = None  # every answer checks the permission of what it looks up
+
+    def build(self) -> None:
+        self.session = Session()
+        self.assistant: Assistant | None = None
+        self.system2: LocalModel | None = None
+        self._ready = False
+        self._busy = False
+        self._queued: tuple[str, str] | None = None
+        self._bubbles: list[ctk.CTkFrame] = []
+        self._typing: ctk.CTkFrame | None = None
+        self._row = 0
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.chat = ctk.CTkScrollableFrame(self, fg_color=theme.color("surface"), corner_radius=12)
+        self.chat.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 8))
+        self.chat.grid_columnconfigure(0, weight=1)
+
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 4))
+        bottom.grid_columnconfigure(0, weight=1)
+        self.chips = ctk.CTkFrame(bottom, fg_color="transparent")
+        self.chips.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
+        self.entry = ctk.CTkEntry(
+            bottom,
+            height=48,
+            font=theme.font(17),
+            placeholder_text=_t("Ask… e.g. How much does Ramesh owe?", "पूछिए… जैसे: रमेश का कितना बकाया है?"),
+        )
+        self.entry.grid(row=1, column=0, sticky="ew")
+        self.entry.bind("<Return>", lambda _e: self.send())
+        self.send_button = primary_button(
+            bottom, _t("Ask", "पूछो"), self.send, height=48, width=110, font=theme.font(16, "bold")
+        )
+        self.send_button.grid(row=1, column=1, padx=(8, 0))
+        self.mic_button = secondary_button(bottom, Raw("🎤"), self._voice, height=48, width=52, font=theme.font(18))
+        self.mic_button.grid(row=1, column=2, padx=(8, 0))
+        foot = ctk.CTkFrame(bottom, fg_color="transparent")
+        foot.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+        foot.grid_columnconfigure(0, weight=1)
+        self.status = ctk.CTkLabel(foot, text="", font=theme.font(11), text_color=theme.color("muted"), anchor="w")
+        self.status.grid(row=0, column=0, sticky="ew")
+        secondary_button(foot, _t("New chat", "नई बात"), self.new_chat, height=28, width=96, font=theme.font(12)).grid(
+            row=0, column=1
+        )
+
+    # Life cycle ----------------------------------------------------------------------------
+    def on_show(self, question: str | None = None, **kwargs) -> None:
+        if self.assistant is None:
+            self._start()
+        self.entry.focus_set()
+        if question:
+            self.ask(question)
+
+    def _start(self) -> None:
+        data_dir = self.ctx.settings.data_dir
+        self.system2 = LocalModel(models_dir(data_dir))
+        self.assistant = Assistant(self.ctx.db, self.ctx.user, model_dir=data_dir / "assistant", system2=self.system2)
+        self._set_status(
+            _t("Getting ready… (the first time takes up to a minute)", "तैयार हो रहा है… (पहली बार एक मिनट तक)")
+        )
+        self.send_button.configure(state="disabled")
+        self.run_async(self.assistant.warm_up, self._on_ready, self._on_start_failed)
+
+    def _on_ready(self, _result) -> None:
+        self._ready = True
+        self.send_button.configure(state="normal")
+        self._show_status()
+        self._reply_bubble(self.assistant.ask("help" if not i18n.is_hindi() else "मदद", Session()))
+        self._fill_chips()
+        if self._queued:
+            text, shown = self._queued
+            self._queued = None
+            self._ask_now(text)
+
+    def _on_start_failed(self, exc: Exception) -> None:
+        self._set_status(_t(f"The assistant could not start: {exc}", f"सहायक शुरू नहीं हो पाया: {exc}"))
+
+    def _show_status(self) -> None:
+        parts = [_t("Ready", "तैयार")]
+        if self.system2 is not None and self.system2.available():
+            parts.append(_t("language model on", "भाषा मॉडल चालू"))
+        parts.append(_t("read-only: it only looks things up", "केवल देखता है, कुछ बदलता नहीं"))
+        self._set_status(" · ".join(parts))
+
+    def _set_status(self, text: str) -> None:
+        self.status.configure(text=Raw(text))
+
+    def _fill_chips(self) -> None:
+        for w in self.chips.winfo_children():
+            w.destroy()
+        examples = (
+            ["आज कितनी बिक्री हुई?", "किसके करार की तारीख निकल गई?", "क्या मँगवाना है?", "सबसे बड़े बकायेदार"]
+            if i18n.is_hindi()
+            else ["Sales today", "Overdue promises", "What should I reorder?", "Biggest debtors"]
+        )
+        for text in examples:
+            secondary_button(
+                self.chips, Raw(text), lambda t=text: self.ask(t), height=30, font=theme.font(12), corner_radius=15
+            ).pack(side="left", padx=(0, 6))
+
+    def new_chat(self) -> None:
+        self.session = Session()
+        for b in self._bubbles:
+            b.destroy()
+        self._bubbles.clear()
+        self._typing = None
+        if self._ready:
+            self._reply_bubble(self.assistant.ask("help" if not i18n.is_hindi() else "मदद", Session()))
+        self.entry.focus_set()
+
+    # Asking ----------------------------------------------------------------------------------
+    def send(self) -> None:
+        text = self.entry.get().strip()
+        if not text:
+            return
+        self.entry.delete(0, "end")
+        self.ask(text)
+
+    def ask(self, text: str, shown: str | None = None) -> None:
+        if self._busy:
+            return
+        self._user_bubble(shown or text)
+        if not self._ready:
+            self._queued = (text, shown or text)
+            return
+        self._ask_now(text)
+
+    def _ask_now(self, text: str) -> None:
+        self._busy = True
+        self.send_button.configure(state="disabled")
+        self._typing = self._bubble("bot")
+        ctk.CTkLabel(self._typing, text=Raw("…"), font=theme.font(18, "bold"), text_color=theme.color("muted")).pack(
+            padx=16, pady=6
+        )
+        self._scroll_down()
+        self.run_async(lambda: self.assistant.ask(text, self.session), self._answered, self._ask_failed)
+
+    def _answered(self, reply: Reply) -> None:
+        self._drop_typing()
+        self._busy = False
+        self.send_button.configure(state="normal")
+        self._reply_bubble(reply)
+        self.entry.focus_set()
+
+    def _ask_failed(self, exc: Exception) -> None:
+        self._drop_typing()
+        self._busy = False
+        self.send_button.configure(state="normal")
+        bubble = self._bubble("bot")
+        self._label(bubble, _t(f"Something went wrong: {exc}", f"कुछ गड़बड़ हो गई: {exc}"), 14, color="danger")
+
+    def _drop_typing(self) -> None:
+        if self._typing is not None:
+            outer = self._typing.master
+            if outer in self._bubbles:
+                self._bubbles.remove(outer)
+            outer.destroy()
+            self._typing = None
+
+    def _voice(self) -> None:
+        self.ctx.app.toast(
+            _t("Speaking to the assistant is coming in a later version.", "बोलकर पूछना अगले संस्करण में आएगा।")
+        )
+
+    # Drawing -----------------------------------------------------------------------------------
+    def _wrap(self) -> int:
+        width = self.chat.winfo_width()
+        return max(320, int((width if width > 50 else 900) * 0.68))
+
+    def _bubble(self, side: str) -> ctk.CTkFrame:
+        outer = ctk.CTkFrame(self.chat, fg_color="transparent")
+        outer.grid(row=self._row, column=0, sticky="ew", padx=8, pady=5)
+        self._row += 1
+        mine = side == "user"
+        bubble = ctk.CTkFrame(outer, fg_color=theme.color("accent" if mine else "surface2"), corner_radius=14)
+        bubble.pack(side="right" if mine else "left", padx=(60, 0) if mine else (0, 60))
+        self._bubbles.append(outer)
+        while len(self._bubbles) > MAX_BUBBLES:
+            self._bubbles.pop(0).destroy()
+        return bubble
+
+    def _label(self, parent, text: str, size: int, weight: str = "normal", color: str = "text", **pack) -> ctk.CTkLabel:
+        label = ctk.CTkLabel(
+            parent,
+            text=Raw(text),
+            font=theme.font(size, weight),
+            text_color=theme.color(color),
+            justify="left",
+            anchor="w",
+            wraplength=self._wrap(),
+        )
+        label.pack(fill="x", padx=14, pady=pack.get("pady", (2, 2)))
+        return label
+
+    def _user_bubble(self, text: str) -> None:
+        bubble = self._bubble("user")
+        self._label(bubble, text, 16, color="accent_text", pady=(8, 8))
+        self._scroll_down()
+
+    def _reply_bubble(self, reply: Reply) -> None:
+        bubble = self._bubble("bot")
+        self._label(bubble, reply.text, 16, "bold", pady=(10, 2))
+        for line in reply.lines:
+            self._label(bubble, line, 14)
+        if reply.rows:
+            self._table(bubble, reply)
+        if reply.options:
+            box = ctk.CTkFrame(bubble, fg_color="transparent")
+            box.pack(fill="x", padx=10, pady=(6, 4))
+            for opt in reply.options:
+                ctk.CTkButton(
+                    box,
+                    text=Raw(opt.label),
+                    font=theme.font(15),
+                    height=40,
+                    anchor="w",
+                    fg_color=theme.color("surface"),
+                    hover_color=theme.color("surface_hover"),
+                    text_color=theme.color("text"),
+                    border_width=1,
+                    border_color=theme.color("surface3"),
+                    command=lambda o=opt: self.ask(o.reply, shown=o.label),
+                ).pack(fill="x", pady=3)
+        if reply.actions:
+            row = ctk.CTkFrame(bubble, fg_color="transparent")
+            row.pack(fill="x", padx=10, pady=(4, 2))
+            for label, view, kwargs in reply.actions:
+                secondary_button(
+                    row,
+                    Raw(label + " →"),
+                    lambda v=view, k=kwargs: self.ctx.app.navigate(v, **k),
+                    height=32,
+                    font=theme.font(13),
+                ).pack(side="left", padx=(0, 6))
+        if reply.looked_up:
+            self._label(bubble, "🔎 " + reply.looked_up, 11, color="muted", pady=(4, 8))
+        else:
+            ctk.CTkFrame(bubble, height=6, fg_color="transparent").pack()
+        self._scroll_down()
+
+    def _table(self, parent, reply: Reply) -> None:
+        grid = ctk.CTkFrame(parent, fg_color=theme.color("surface"), corner_radius=8)
+        grid.pack(fill="x", padx=12, pady=(6, 4))
+        kinds = [k for _t, k in reply.columns]
+        for c, (title, kind) in enumerate(reply.columns):
+            grid.grid_columnconfigure(c, weight=1 if kind == "text" else 0)
+            ctk.CTkLabel(
+                grid,
+                text=Raw(title),
+                font=theme.font(12, "bold"),
+                text_color=theme.color("muted"),
+                anchor="w" if kind == "text" else "e",
+            ).grid(row=0, column=c, sticky="ew", padx=8, pady=(4, 2))
+        for r, row in enumerate(reply.rows[:MAX_ROWS], start=1):
+            for c, value in enumerate(row[: len(kinds)]):
+                kind = kinds[c]
+                ctk.CTkLabel(
+                    grid, text=Raw(_cell(value, kind)), font=theme.font(14), anchor="w" if kind == "text" else "e"
+                ).grid(row=r, column=c, sticky="ew", padx=8, pady=1)
+        more = len(reply.rows) - MAX_ROWS
+        if more > 0:
+            ctk.CTkLabel(
+                grid,
+                text=_t(f"… and {more} more", f"… और {more}"),
+                font=theme.font(12),
+                text_color=theme.color("muted"),
+                anchor="w",
+            ).grid(row=MAX_ROWS + 1, column=0, columnspan=len(kinds), sticky="ew", padx=8, pady=(0, 4))
+
+    def _scroll_down(self) -> None:
+        def go():
+            try:
+                self.chat._parent_canvas.yview_moveto(1.0)
+            except Exception:  # noqa: BLE001 - cosmetic
+                pass
+
+        self.after(30, go)
+
+
+def _cell(value, kind: str) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str) and len(value) == 10 and value[4] == "-" and value[7] == "-" and value[:4].isdigit():
+        return f"{value[8:]}-{value[5:7]}-{value[:4]}"  # ISO date -> the shop's dd-mm-yyyy
+    if kind == "money":
+        return money(value)
+    if kind == "qty":
+        return qty(value)
+    if kind == "int":
+        try:
+            return str(int(value))
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)

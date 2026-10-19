@@ -1,7 +1,13 @@
 # AI chat assistant — design (for review)
 
-Status: **draft for review, nothing implemented yet.** Version target: 5.2.
-Owner decisions needed are collected in [§14 Open questions](#14-open-questions).
+Status: **reviewed 2026-10-20 — decisions in [§14](#14-decisions-2026-10-20). Phase 1 shipped in
+5.2.0** (assistant without a model, plus the Kaggle cell and the System 2 runtime hook);
+measured results in [§8](#8-evaluation-and-acceptance).
+
+Who it is for: **one user — the shop owner (the author's father), who is not comfortable
+operating a laptop.** Not for customers. So: plain words, few taps, Hindi first, answers in
+the language of the question, voice later (§12), and later a WhatsApp / Telegram chat so he
+never has to open the program at all.
 
 ---
 
@@ -35,6 +41,15 @@ The assistant **finds and shows** data the app already computes. It never invent
 4. Respect roles: an employee cannot get the audit log or staff report through chat.
 5. Work **without** the language model too (smaller install, older PCs) — the model adds
    coverage for unusual phrasing, it is not a single point of failure.
+
+6. **Ask back instead of guessing** when the question leaves something open:
+   “Ramesh ka last month ka hisab btao” with three Rameshes → “कौन से रमेश? 1 · रमेश सिहाग
+   (रोहतक) 2 · रमेश सैनी 3 · रमेश गोदारा” — answered with “1”, “sihag wala”, “rohtak”…
+   Same for items (“urea kitna hai” with two urea items), money accounts and missing
+   details (“hisab btao” → “किसका?”). Once the question is answered, it is removed from the
+   conversation context (§3.7).
+7. **Answer in the question's language:** Devanagari or Hinglish (Roman Hindi) → Hindi
+   answer; English → English answer.
 
 ### Non-goals (first release)
 - No free-form "chat about anything", no advice, no internet, no cloud API.
@@ -139,6 +154,10 @@ placeholder text + today's date. Output: exactly one call, e.g.
   question. After LoRA tuning, the declaration block can be shortened further.
 * Output is checked: unknown placeholder, missing required argument, or a permission the
   user lacks → the card says so instead of guessing.
+* **As built in 5.2.0:** the prompt is the instruction and the question only (no tool list -
+  the LoRA-tuned model has learnt the tools), `data.PROMPT_VERSION` = 2. Only the model's
+  choice of tool is trusted; periods, names and numbers always come from the deterministic
+  parser, so no grammar is needed yet. A model trained for another prompt version is refused.
 
 ### 3.5 Execute
 Each tool is a thin, typed, **read-only** wrapper around a method that already exists and
@@ -156,6 +175,31 @@ checks `ctx.can(...)` before running it — the same matrix as the screens.
   (where the answer is about one customer).
 * Follow-ups: the last tool call is kept, so “aur pichle mahine?” / “and for DAP?” re-runs
   it with one slot changed (System 1 has explicit `followup_*` intents).
+
+### 3.7 Asking back, and what the conversation remembers
+The dialog keeps at most **one open question**:
+
+```
+ask ──▶ link entities ──▶ one match per slot? ──yes──▶ run tool ──▶ answer ──▶ forget it
+                              │ no / missing
+                              ▼
+                     pending = {tool, slots so far, slot to fill, options}
+                     reply   = "कौन से रमेश? 1 · … 2 · … 3 · …"  (+ buttons)
+next message ──▶ is it an answer to the pending question?
+                   "2" · "dusra" · "दूसरा" · "sihag wala" · "rohtak" · a full name
+                 yes ──▶ fill the slot, re-check, run ──▶ answer ──▶ forget it
+                 no  ──▶ drop the pending question, treat as a new question
+```
+
+* Options are ranked (exact token matches, then recent activity) and capped at 6; more
+  → “इनमें से कोई? या और नाम लिखें”.
+* A choice can be made by number, ordinal word (pehla/dusra/तीसरा/first), a distinguishing
+  word from the option (village, surname, phone digits), or by typing the full name.
+* Missing required slots ask with the slot's own question (“किसका हिसाब?”, “कौन सा
+  सामान?”).
+* **After an answer the query is settled and removed from context.** The only carry-over
+  is an explicit follow-up phrase right after an answer (“aur pichle mahine?”,
+  “usi ka DAP?”) within two minutes; anything else starts fresh.
 
 ---
 
@@ -225,9 +269,25 @@ try Q5/Q4 only if latency needs it (quality drops sharply below 4-bit at this si
 The model is an **optional extra**: `pip install high-table-holdings[assistant]` plus a
 model file in `C:\JBB\v5\models\`; without them the assistant runs System 1 only.
 
-**Latency budget (shop PC, to be measured with `llama-bench`):** normalise + link
-< 30 ms · System 1 < 10 ms · System 2 ≤ 1.2 s (≈100 prompt tokens cached + ≤ 40 generated)
-· execute + compose < 200 ms · **p95 end-to-end ≤ 1.5 s**.
+**Shop PC: Intel Celeron, 4 GB RAM.** That decides the budget:
+
+* System 1 must answer nearly everything on its own: normalise + link + classify + run +
+  compose **≤ 300 ms**, no model loaded, no new dependency.
+* System 2 is an optional fallback: FunctionGemma-270M at **Q4_K_M / Q5_K_M (≈180–220 MB)**,
+  2 threads, context 512, loaded lazily on first use and released after 10 idle minutes,
+  so the rest of the program keeps its memory. Target ≤ 4 s on the Celeron for a fallback
+  question (to be measured with `llama-bench`; older Celerons lack AVX2 — the runtime must
+  pick a matching CPU build, and the feature switches itself off if loading fails).
+* Development and training never happen on the shop PC.
+
+### 5.1 Later: a cloud "smart" model for hard questions
+For the rare complex question, the router can send the **placeholder text only**
+(`<C1> ne pichle saal kitna kharcha kiya aur kya trend hai`) to a frontier model via an
+API, with the same contract: it returns one tool call (or a short plan of up to three
+calls), never numbers. Settings: *Local only* / *Cloud for hard questions* / *Ask me*;
+provider, model and key; **limits per hour and per day** enforced locally (free tiers);
+every cloud call shown on the answer card. Provider-neutral adapter (OpenAI-compatible
+and Anthropic-style endpoints). Not in phase 1.
 
 ---
 
@@ -260,14 +320,24 @@ dictates 50–100 real questions — the single most valuable addition to the **
 * Format: the chosen model's own chat/function-calling format (for FunctionGemma: the
   developer message, function declarations, `<start_function_call>` output).
 * LoRA on attention + MLP projections, rank 16, alpha 32, dropout 0.05, lr 2e-4 cosine,
-  2–3 epochs, max length 256, loss on the output only. Typical public recipes for 270 M
+  3 epochs, max length 192, loss on the output only (the output layer runs only on answer
+  tokens, which keeps the 262k-word Gemma vocabulary cheap). Typical public recipes for 270 M
   use exactly this size of adapter.
-* Where: a free cloud GPU notebook (≈30–60 min for 270 M) — or this laptop's CPU overnight
-  if cloud is not wanted. Only the synthetic corpus is uploaded.
-* Export: merge adapter → convert to GGUF → Q8_0 → checksum; ships as one file.
-* Reproducible: `tools/assistant/make_data.py`, `train_lora.py`, `export_gguf.py`,
-  `eval.py` with fixed seeds; training needs `transformers`, `peft`, `trl` — dev-only,
-  never installed on the shop PC.
+* Where: **Kaggle, free GPU, one notebook cell** — `tools/assistant/kaggle_train_cell.py`.
+  Paste it into a Kaggle notebook (GPU on, internet on), run, download
+  `hth_assistant_model.zip` from the Output tab. The cell is self-contained: it embeds the
+  same data generator the app uses (§6), so no upload is needed and no real data leaves
+  the PC.
+* The cell: installs the training stack → generates the corpus → LoRA fine-tune →
+  evaluates on the held-out templates and prints accuracy per intent and language →
+  merges → exports GGUF (Q8_0 and Q4_K_M) → zips the GGUF files, the adapter, the tool
+  schema version and the eval report.
+* Install on the shop PC: Settings → Assistant → Install model… takes the zip (only the
+  `.gguf` files and the manifest are unpacked into `C:\JBB\v5\models\`); it needs
+  `llama-cpp-python`. The prompt is deliberately short (the fine-tuned model knows the
+  tools), so a Celeron reads it quickly; only the model's choice of tool is used.
+* Reproducible: fixed seeds; the corpus version and tool-schema version are stamped into
+  the zip so the app refuses a model trained for a different tool set.
 
 ---
 
@@ -287,6 +357,20 @@ dictates 50–100 real questions — the single most valuable addition to the **
 Reported per style (English / Hindi / Hinglish), per intent, System 1 vs System 2, so a
 regression is visible before it ships. The current System-1-only score is the baseline the
 LM has to beat to be worth installing.
+
+**Measured for 5.2.0** (System 1 only, this laptop):
+
+| check | result |
+|---|---|
+| intent on held-out templates, 3 folds, with routing (`eval.py`) | 95.2 % — Hindi 98.9 %, Hinglish 96.2 %, English 92.8 % |
+| intent latency | 0.5 ms per question; whole answer 1–20 ms |
+| full customer name found on the live data (`eval_names.py`, read-only) | 99.7 % of 663 (asks back for 21 shared names) |
+| name with a typo in every word | 88.7 % right or asked back with the right one offered; 4.4 % picked another customer (the answer shows the name) |
+| item names | 98.7 % of 76 |
+| first-time training of System 1 | 6–9 s here; expect ~30 s on the Celeron, once |
+
+Weakest intents are near-synonyms (overdue vs coming karar, cash vs payable, expenses vs
+profit); low confidence turns into a "did you mean" question rather than a wrong answer.
 
 ---
 
@@ -332,10 +416,15 @@ Same permissions, same audit entries, same undo as doing it by hand.
 
 | phase | delivers | depends on |
 |---|---|---|
-| **1 · Assistant without a model** | chat screen, normaliser (scripts, numbers, dates), entity linker, 28 tools, answer cards in Hindi/English, System 1 trained on the synthetic corpus, follow-ups, audit lines | nothing new to install |
-| **2 · Data + eval** | template corpus (3 styles), generator, eval harness + report, owner's real questions | §14 answers |
-| **3 · System 2** | zero-shot baseline for both candidates with GBNF; LoRA training + GGUF export; optional `llama-cpp-python` integration with router thresholds; `llama-bench` on the shop PC; ship the winner if it beats System 1 alone | model licence check; a GPU notebook or an overnight CPU run |
-| **4 · Actions & voice** (later) | confirmation-card actions (§9); optional offline speech input | phases 1–3 in use |
+| **1 · Assistant without a model** (now) | `hth/assistant` core (UI-independent), chat screen, normaliser, entity linker with ask-back, read-only tools, answers in the question's language, System 1 trained on the synthetic corpus, follow-ups, audit lines | nothing new to install |
+| **2 · Data + eval** (now) | template corpus (3 styles), generator, eval harness | — |
+| **3 · System 2** | Kaggle training cell (written now), local GGUF runtime hook (written now, enabled once a model file is installed), `llama-bench` on the Celeron, ship if it beats System 1 alone | your Kaggle run; licence check |
+| **4 · Reach and voice** (later) | WhatsApp / Telegram bot calling the same core; voice in (speech-to-text) and voice out (Hindi text-to-speech) | phases 1–3 in use |
+| **5 · Cloud smart model** (later) | §5.1 router with hourly / daily limits | provider choice |
+| **6 · Actions** (later) | confirmation-card actions (§9) | — |
+
+The core is built as `Assistant.ask(text, session) → Reply` with no Tk in it, so the chat
+screen, a WhatsApp/Telegram bot and a voice loop are just different front ends.
 
 Phase 1 alone should answer most everyday questions; phases 2–3 widen phrasing coverage
 and handle combined conditions.
@@ -355,23 +444,20 @@ and handle combined conditions.
 
 ---
 
-## 14. Open questions
+## 14. Decisions (2026-10-20)
 
-1. **“jev like system one model”** — this design assumes *System 1 / System 2* (fast
-   classifier + deliberate small LM), with System 1 as a JEPA-style embedding predictor.
-   If you meant something else (a JARVIS-style voice assistant? a specific model?), say
-   which and §2–3 change accordingly.
-2. **Shop PC hardware** — CPU model and RAM decide quantisation and whether System 2 is on
-   by default.
-3. **Training location** — OK to fine-tune on a free cloud GPU with the synthetic
-   (placeholder-only) corpus, or must everything stay on local machines (overnight CPU)?
-4. **Answer language** — always the UI language, or the language the question was asked in?
-5. **Real questions** — can you (or the shop) list 50–100 questions actually asked at the
-   counter, in the words used? They become the evaluation set.
-6. **Actions** — confirm that 5.2 is read-only and actions come later with confirmation.
-7. **Employees** — same assistant for employees (with their permissions), or admin only?
+1. **System 1 / System 2** as described — confirmed.
+2. **Shop PC: Intel Celeron, 4 GB RAM** → System 1 carries the load; System 2 small,
+   quantised, lazy-loaded, optional (§5).
+3. **Training on Kaggle GPU**, one self-contained cell, download the weights (§7).
+4. **Answers in the language of the question** (Hinglish → Hindi).
+5. **User: the shop owner only.** Later a WhatsApp / Telegram bot and voice in/out.
+6. **Read-only** for now.
+7. **Ask back** on ambiguous or missing details; settled queries leave the context (§3.7).
+8. **Later: cloud smart model** for hard questions with per-hour / per-day limits (§5.1).
 
----
+Still open: the owner's real questions (the best evaluation data), and the Gemma licence
+check before shipping a FunctionGemma-based file.
 
 ### Sources consulted (October 2026)
 - FunctionGemma 270M — run & fine-tune guide (Unsloth): https://unsloth.ai/docs/models/tutorials/functiongemma
