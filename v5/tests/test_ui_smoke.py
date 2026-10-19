@@ -319,3 +319,83 @@ def test_first_run_wizard(tmp_path, monkeypatch):
         assert app._login is not None and app._setup is None
     finally:
         app.destroy()
+
+
+def test_v5_sales_lines_undo_lock_and_day_change(app, monkeypatch):
+    import datetime as dt
+
+    ctx = app.ctx
+    c = ctx.accounts.add_customer("RAM", "X", 0)
+    urea = ctx.inventory.add_item("UREA", 260, 300, unit="BAG", opening_quantity=10)
+    dap = ctx.inventory.add_item("DAP", 1200, 1350, unit="BAG", opening_quantity=5)
+    _login(app, "admin", "admin")
+    app.navigate("sales")
+    _pump(app)
+    sales = app._views["sales"]
+
+    # two lines, posted together as one debit
+    sales.account.set(c.id)
+    sales.item.set(urea.id)
+    sales._on_item(urea.id)
+    sales.quantity.set("2")
+    sales.add_line()
+    assert len(sales._lines) == 1 and sales.lines_box.winfo_manager()
+    sales.item.set(dap.id)
+    sales._on_item(dap.id)
+    sales.quantity.set("1")
+    sales.submit("P")  # the line still in the form is included
+    _pump(app)
+    assert ctx.inventory.quantity(urea.id) == 8 and ctx.inventory.quantity(dap.id) == 4
+    assert ctx.accounts.get_balance(c.id) == 600 + 1350
+    assert not sales._lines and not sales.lines_box.winfo_manager()
+    assert sales.undo_button.cget("state") == "normal"
+
+    # undo puts everything back
+    monkeypatch.setattr("hth.ui.views.sales.confirm", lambda *a, **k: True)
+    sales.undo_last()
+    _pump(app)
+    assert ctx.accounts.get_transactions(c.id) == []
+    assert ctx.inventory.quantity(urea.id) == 10 and ctx.inventory.quantity(dap.id) == 5
+    assert sales.undo_button.cget("state") == "disabled"
+
+    # lock hides the work, wrong password keeps it locked, right one restores it
+    sales.quantity.set("7")
+    app.lock()
+    _pump(app)
+    assert app.is_locked and not sales.winfo_ismapped()
+    app.navigate("reports")  # ignored while locked
+    assert app._active == "sales"
+    app._lock.password.set("nope")
+    app._lock.submit()
+    assert app.is_locked
+    app._lock.password.set("admin")
+    app._lock.submit()
+    _pump(app)
+    assert not app.is_locked and sales.winfo_ismapped() and sales.quantity.get() == "7"
+
+    # a new day rolls the untouched date field forward
+    yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+    sales.date._auto_value = yesterday
+    sales.date.set(yesterday)
+    app._today = dt.date.today() - dt.timedelta(days=1)
+    app._tick()
+    assert sales.date.get() == dt.date.today().isoformat()
+    assert app.date_label.cget("text") == dt.date.today().strftime("%A, %d %B %Y")
+
+    # collapsed sidebar is remembered
+    app.toggle_sidebar()
+    _pump(app)
+    assert app.prefs.sidebar_compact()
+    app.toggle_sidebar()
+    assert not app.prefs.sidebar_compact()
+
+    # every report in the catalogue runs without error
+    from hth.ui.views.reports import REPORTS
+
+    app.navigate("reports")
+    rv = app._views["reports"]
+    for spec in REPORTS:
+        if any(p.kind == "customer" for p in spec.params):
+            continue
+        rv.select(spec)
+        assert _wait(app, lambda: not rv.table.footer.cget("text").startswith("Running")), spec.key

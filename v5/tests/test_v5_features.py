@@ -186,3 +186,98 @@ def test_gst_summary_and_staff_activity(db, reports, auth):
     today = dt.date.today().isoformat()
     staff = {r[0]: r for r in reports.staff_activity(today, today)}
     assert staff["admin"][1] == 1 and staff["admin"][6] >= 1
+
+
+def test_record_lines_is_atomic_and_undo_reverses_everything(accounts, inventory, sales, db):
+    from hth.services.accounts import ValidationError
+    from hth.services.sales import SaleLine
+
+    c = accounts.add_customer("ram", "", 0)
+    urea = inventory.add_item("UREA", stock_value=250, last_value=280, opening_quantity=10, unit="BAG")
+    dap = inventory.add_item("DAP", stock_value=1200, last_value=1300, opening_quantity=5, unit="BAG")
+    lines = [SaleLine("UREA", 2, 300, urea.id, "BAG"), SaleLine("DAP", 1, 1350, dap.id, "BAG")]
+    results = sales.record_lines("P", "2026-08-29", c.id, lines, "1", "admin")
+    assert [r.amount for r in results] == [600, 1350]
+    assert inventory.quantity(urea.id) == 8 and inventory.quantity(dap.id) == 4
+    assert accounts.get_balance(c.id, TODAY) == 1950
+    assert inventory.get_item(urea.id).last_value == 300
+
+    # a bad line rolls back the good ones
+    bad = [SaleLine("UREA", 1, 300, urea.id, "BAG"), SaleLine("DAP", 1, 100, dap.id, "LTR")]
+    with pytest.raises(ValidationError, match="Line 2"):
+        sales.record_lines("P", "2026-08-29", c.id, bad, "1", "admin")
+    assert inventory.quantity(urea.id) == 8 and accounts.get_balance(c.id, TODAY) == 1950
+
+    assert sales.undo(results, "admin") == 2
+    assert accounts.get_transactions(c.id) == []
+    assert inventory.quantity(urea.id) == 10 and inventory.quantity(dap.id) == 5
+    assert inventory.get_item(urea.id).last_value == 280  # restored
+    assert "undo sale" in db.fetchone("SELECT message FROM audit_log ORDER BY id DESC LIMIT 1")["message"]
+
+
+def test_undo_money_entry_removes_cash_book_line(accounts, sales, db):
+    from hth.modules.finance.service import FinanceService
+
+    fin = FinanceService(db)
+    fin.ensure_defaults()
+    cash = fin.default_account_id()
+    c = accounts.add_customer("ram", "", 1000, "2026-08-01")
+    r = sales.record("M", "2026-08-29", c.id, "CASH", 1, 400, "1", "admin", money_account_id=cash)
+    assert r.finance_entry_id is not None and fin.balance(cash) == 400
+    sales.undo([r], "admin")
+    assert fin.balance(cash) == 0
+    assert [t.description for t in accounts.get_transactions(c.id)] == ["NEW ACCOUNT"]
+
+
+def test_undo_settlement_and_crop_purchase(accounts, inventory, sales):
+    c = accounts.add_customer("a", "", 1000, "2026-01-01")
+    r = sales.record("M", "2026-08-29", c.id, "CASH", 1, 900, "0", "admin")
+    assert len(r.transaction_ids) == 3  # entry, Settled Amount, Discount
+    sales.undo([r], "admin")
+    assert len(accounts.get_transactions(c.id)) == 1
+
+    farmer = accounts.add_customer("farmer", "", 0)
+    wheat = inventory.add_item("WHEAT", unit="KG", item_type="C")
+    lot = sales.record("M", "2026-08-29", farmer.id, "WHEAT", 100, 25, "2", "admin", item_id=wheat.id)
+    assert inventory.quantity(wheat.id) == 100
+    sales.undo([lot], "admin")
+    assert inventory.quantity(wheat.id) == 0 and accounts.get_transactions(farmer.id) == []
+
+
+def test_restore_backup_round_trip_with_safety_copy(tmp_path):
+    from hth.config import Settings
+    from hth.db import schema
+    from hth.db.connection import Database
+    from hth.services.accounts import AccountsService
+    from hth.services.backup import BackupService
+
+    settings = Settings(tmp_path)
+    settings.ensure_dirs()
+    db = Database(settings.db_path)
+    schema.initialize(db)
+    acc = AccountsService(db)
+    acc.add_customer("before", "", 100, "2026-01-01")
+    svc = BackupService(db, settings)
+    snapshot = svc.manual()
+    acc.add_customer("after", "", 200, "2026-01-02")
+
+    info = svc.inspect(snapshot)
+    assert info.customers == 1 and info.schema_version == schema.MIGRATIONS[-1][0]
+    safety = svc.restore(snapshot, "admin")
+    assert [c.name for c in acc.list_customers()] == ["BEFORE"]
+    assert BackupService.inspect(safety).customers == 2  # what was there before the restore
+    assert "restored backup" in db.fetchone("SELECT message FROM audit_log ORDER BY id DESC LIMIT 1")["message"]
+
+    junk = tmp_path / "junk.db"
+    junk.write_bytes(b"not a database at all" * 100)
+    with pytest.raises(ValueError):
+        svc.inspect(junk)
+    other = Database(tmp_path / "other.db")
+    other.execute("CREATE TABLE t (x)")
+    with pytest.raises(ValueError, match="not a High Table Holdings"):
+        svc.inspect(tmp_path / "other.db")
+    newer = Database(tmp_path / "newer.db")
+    schema.initialize(newer)
+    newer.execute("PRAGMA user_version = 999")
+    with pytest.raises(ValueError, match="newer version"):
+        svc.inspect(tmp_path / "newer.db")

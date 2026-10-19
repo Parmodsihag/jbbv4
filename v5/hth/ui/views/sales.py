@@ -8,12 +8,13 @@ from hth.domain.constants import TAG_CHOICES, Tag
 from hth.domain.units import ALL_UNITS, UnitError, compatible_units, convert, normalize
 from hth.services.accounts import ValidationError
 from hth.services.permissions import Permission
-from hth.services.sales import CROP_ITEM_TYPE, crop_handler, money_flow_handler
+from hth.services.sales import CROP_ITEM_TYPE, SaleLine, crop_handler, money_flow_handler
 from hth.ui import theme
 from hth.ui.format import money, today_str
 from hth.ui.format import qty as fmt_qty
 from hth.ui.views.base import BaseView
 from hth.ui.widgets.datatable import Column, DataTable
+from hth.ui.widgets.dialogs import confirm
 from hth.ui.widgets.forms import (
     Card,
     DateField,
@@ -21,10 +22,12 @@ from hth.ui.widgets.forms import (
     LabeledOption,
     LabeledWidget,
     primary_button,
+    secondary_button,
 )
 from hth.ui.widgets.searchbox import SearchBox
 
 QUALITY_GRADES = ["A", "B", "C", "MIX"]
+UNDO_MINUTES = 15  # how long the last entry can be undone from this screen
 
 
 class SalesView(BaseView):
@@ -37,6 +40,8 @@ class SalesView(BaseView):
         self.grid_columnconfigure(1, weight=3, uniform="s")
         self.grid_rowconfigure(0, weight=1)
         self._item = None  # selected inventory item (None for free text)
+        self._lines: list[tuple[SaleLine, float]] = []  # pending lines of a multi-item entry
+        self._last: tuple[list, str, float] | None = None  # (results, summary, monotonic time)
 
         form = Card(self, "New entry")
         form.grid(row=0, column=0, sticky="nsew", padx=(4, 8), pady=4)
@@ -130,8 +135,35 @@ class SalesView(BaseView):
 
         for w in (self.quantity, self.price, self.deduction):
             w.var.trace_add("write", lambda *_: self._update_amount())
+        self.quantity.entry.bind("<Return>", lambda e: self.price.focus())
+        self.price.entry.bind("<Return>", lambda e: self.add_line())
 
-        buttons = ctk.CTkFrame(inner, fg_color="transparent")
+        # Pending lines (several items for the same account, posted together)
+        self.lines_box = ctk.CTkFrame(inner, fg_color=theme.color("surface2"), corner_radius=8)
+        self.lines_table = DataTable(
+            self.lines_box,
+            [
+                Column("item", "Item", 170, stretch=True),
+                Column("qty", "Qty", 80, "e"),
+                Column("price", "Price", 80, "e", "money"),
+                Column("amount", "Amount", 95, "e", "money"),
+            ],
+            height=4,
+        )
+        self.lines_table.pack(fill="x", padx=6, pady=(6, 2))
+        lb = ctk.CTkFrame(self.lines_box, fg_color="transparent")
+        lb.pack(fill="x", padx=6, pady=(0, 6))
+        secondary_button(lb, "Remove line", self.remove_line, width=110, height=28).pack(side="left")
+        secondary_button(lb, "Clear all", self.clear_lines, width=90, height=28).pack(side="left", padx=6)
+        self.lines_total = ctk.CTkLabel(lb, text="", font=theme.font(12, "bold"))
+        self.lines_total.pack(side="right", padx=4)
+        # (packed on demand by _refresh_lines)
+
+        self.add_line_button = secondary_button(
+            inner, "+ Add line  (Enter)  - several items for this account, posted together", self.add_line
+        )
+        self.add_line_button.pack(fill="x", pady=(8, 0))
+        self.buttons = buttons = ctk.CTkFrame(inner, fg_color="transparent")
         buttons.pack(fill="x", pady=(8, 0))
         buttons.grid_columnconfigure((0, 1), weight=1)
         self.debit_button = primary_button(buttons, "Debit  ·  sale / pay out", lambda: self.submit("P"))
@@ -158,9 +190,19 @@ class SalesView(BaseView):
         top = self.winfo_toplevel()
         top.bind("<Control-Return>", lambda e: self._shortcut("P"))
         top.bind("<Control-Shift-Return>", lambda e: self._shortcut("M"))
+        top.bind("<Control-z>", lambda e: self.undo_last() if self.winfo_ismapped() else None, add="+")
 
         right = Card(self, "Today's entries")
         right.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=4)
+        undo_bar = ctk.CTkFrame(right, fg_color="transparent")
+        undo_bar.pack(fill="x", padx=12)
+        self.undo_label = ctk.CTkLabel(
+            undo_bar, text="", font=theme.font(12), text_color=theme.color("muted"), anchor="w"
+        )
+        self.undo_label.pack(side="left", fill="x", expand=True)
+        self.undo_button = secondary_button(undo_bar, "↶ Undo last entry", self.undo_last, width=150)
+        self.undo_button.pack(side="right")
+        self.undo_button.configure(state="disabled")
         self.recent = DataTable(
             right,
             [
@@ -191,6 +233,11 @@ class SalesView(BaseView):
 
     def on_theme_change(self) -> None:
         self.recent.restyle()
+        self.lines_table.restyle()
+
+    def on_day_change(self) -> None:
+        super().on_day_change()
+        self._load_recent()
 
     def _load_recent(self) -> None:
         entries = [
@@ -238,9 +285,9 @@ class SalesView(BaseView):
             self.money.set(default)
 
     def _set_money_mode(self, on: bool) -> None:
-        if on and not self.money.winfo_ismapped():
+        if on and not self.money.winfo_manager():
             self.money.pack(fill="x", pady=3, after=self.tag)
-        elif not on and self.money.winfo_ismapped():
+        elif not on and self.money.winfo_manager():
             self.money.pack_forget()
 
     @property
@@ -248,10 +295,10 @@ class SalesView(BaseView):
         return self._item is not None and self._item.item_type == CROP_ITEM_TYPE
 
     def _set_crop_mode(self, on: bool) -> None:
-        if on and not self.crop_box.winfo_ismapped():
+        if on and not self.crop_box.winfo_manager():
             self.crop_box.pack(fill="x", pady=4, before=self.tag)
             self.tag.set(Tag.NO_INTEREST.label)
-        elif not on and self.crop_box.winfo_ismapped():
+        elif not on and self.crop_box.winfo_manager():
             self.crop_box.pack_forget()
 
     def _on_item(self, item_id, focus: bool = True) -> None:
@@ -356,6 +403,87 @@ class SalesView(BaseView):
         if self.winfo_ismapped():
             self.submit(kind)
 
+    # Lines -----------------------------------------------------------------------------
+    def _current_line(self, required: bool) -> tuple[SaleLine, float] | None:
+        """The line in the form, or None when the form is empty (``required`` = complain)."""
+        item_name = self.item.get_text()
+        if not (item_name or self.quantity.get() or self.price.get()):
+            if required:
+                raise ValidationError("Enter an item, quantity and price.")
+            return None
+        if not item_name:
+            raise ValidationError("Item is required.")
+        if not (self.quantity.get() and self.price.get()):
+            raise ValidationError("Quantity and price are required.")
+        if self.is_crop:
+            raise ValidationError("Crop trades are entered one at a time - use Debit / Credit directly.")
+        conv = self._stock_qty()
+        try:
+            price = float(self.price.get())
+        except ValueError as exc:
+            raise ValidationError(f"Invalid price '{self.price.get()}'.") from exc
+        if conv is None:
+            raise ValidationError(f"{self.unit.get()} cannot be converted to {self._item.unit if self._item else ''}.")
+        line = SaleLine(item_name, self.quantity.get(), self.price.get(), self.item.get_key(), self.unit.get())
+        return line, round(conv[0] * price, 2)
+
+    def add_line(self) -> None:
+        try:
+            current = self._current_line(required=True)
+        except ValidationError as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        self._lines.append(current)
+        self._clear_item_fields()
+        self._refresh_lines()
+        self.item.entry.focus_set()
+
+    def remove_line(self) -> None:
+        row = self.lines_table.selected_row()
+        if row is None:
+            if not self._lines:
+                return
+            idx = len(self._lines) - 1
+        else:
+            idx = row[4]
+        del self._lines[idx]
+        self._refresh_lines()
+
+    def clear_lines(self) -> None:
+        self._lines.clear()
+        self._refresh_lines()
+
+    def _refresh_lines(self) -> None:
+        rows = [
+            (line.item_name, f"{line.quantity} {line.unit or ''}".strip(), line.price, amount, i)
+            for i, (line, amount) in enumerate(self._lines)
+        ]
+        self.lines_table.set_rows(rows, "")
+        n = len(self._lines)
+        if n and not self.lines_box.winfo_manager():
+            self.lines_box.pack(fill="x", pady=(6, 0), before=self.add_line_button)
+        elif not n and self.lines_box.winfo_manager():
+            self.lines_box.pack_forget()
+        self.lines_total.configure(text=f"{n} line(s) · {money(sum(a for _l, a in self._lines))}" if n else "")
+        suffix = f"  ({n} lines + this one)" if n else ""
+        self.debit_button.configure(text=f"Debit  ·  sale / pay out{suffix}")
+        self.credit_button.configure(text=f"Credit  ·  receive / purchase{suffix}")
+
+    def _clear_item_fields(self) -> None:
+        self.item.clear()
+        self._item = None
+        self._set_crop_mode(False)
+        self._set_money_mode(True)
+        self.stock_label.configure(text="")
+        self.convert_label.configure(text="")
+        self.quantity.set("")
+        self.price.set("")
+        self.deduction.set("0")
+        self.notes.set("")
+        self.allow_short.deselect()
+        self.unit.set_values(ALL_UNITS)
+        self.amount_label.configure(text="Amount: 0.00")
+
     # Submit ----------------------------------------------------------------------------
     def submit(self, kind: str) -> None:
         try:
@@ -363,6 +491,24 @@ class SalesView(BaseView):
             customer_id = self.account.get_key()
             if customer_id is None:
                 raise ValidationError("Pick an account from the list.")
+            if self._lines:
+                current = self._current_line(required=False)
+                lines = [line for line, _a in self._lines] + ([current[0]] if current else [])
+                results = self.ctx.sales.record_lines(
+                    kind,
+                    date,
+                    customer_id,
+                    lines,
+                    self.tag.get()[0],
+                    self.ctx.username,
+                    money_account_id=self._money_ids.get(self.money.get()),
+                )
+                label = "Debit" if kind == "P" else "Credit"
+                msg = f"{label}: {len(results)} lines, {money(sum(r.amount for r in results))} recorded"
+                self._lines.clear()
+                self._refresh_lines()
+                self._after_post(results, msg, customer_id)
+                return
             item_id = self.item.get_key()
             item_name = self.item.get_text()
             if not (self.quantity.get() and self.price.get()):
@@ -401,20 +547,49 @@ class SalesView(BaseView):
             label = "Debit" if kind == "P" else "Credit"
             note = "" if result.inventory_updated else " (stock not updated - item not in inventory)"
             msg = f"{label} of {money(result.amount)} recorded{note}"
-        self.ctx.toast(msg, "success")
+        self._after_post([result], msg, customer_id)
+
+    def _after_post(self, results: list, msg: str, customer_id: int) -> None:
+        import time
+
+        self.ctx.toast(msg + "  ·  Ctrl+Z to undo", "success")
         self.ctx.status(msg)
+        self._last = (results, msg, time.monotonic())
+        self.undo_button.configure(state="normal")
+        self.undo_label.configure(text=f"Last: {msg}")
         self._show_balance(customer_id)
-        self.item.clear()
-        self._item = None
-        self._set_crop_mode(False)
-        self._set_money_mode(True)
-        self.stock_label.configure(text="")
-        self.convert_label.configure(text="")
-        self.quantity.set("")
-        self.price.set("")
-        self.deduction.set("0")
-        self.notes.set("")
-        self.allow_short.deselect()
+        self._clear_item_fields()
         self.tag.set(Tag.NORMAL.label)
         self._load_recent()
         self.item.entry.focus_set()
+
+    def undo_last(self) -> None:
+        import time
+
+        if self._last is None:
+            return
+        results, msg, at = self._last
+        if time.monotonic() - at > UNDO_MINUTES * 60:
+            self.ctx.toast(
+                f"Undo is only offered for {UNDO_MINUTES} minutes - ask an admin to edit the ledger", "warning"
+            )
+            self._forget_last()
+            return
+        if not confirm(self, "Undo last entry", f"Remove this entry?\n\n{msg}\n\nLedger, stock and cash book go back."):
+            return
+        try:
+            n = self.ctx.sales.undo(results, self.ctx.username)
+        except ValidationError as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        self._forget_last()
+        self.ctx.toast(f"Undone ({n} entr{'y' if n == 1 else 'ies'})", "success")
+        cid = results[0].customer_id if results else None
+        if cid is not None:
+            self._show_balance(cid)
+        self._load_recent()
+
+    def _forget_last(self) -> None:
+        self._last = None
+        self.undo_button.configure(state="disabled")
+        self.undo_label.configure(text="")
