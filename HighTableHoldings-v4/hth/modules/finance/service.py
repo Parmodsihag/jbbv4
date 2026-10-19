@@ -654,9 +654,11 @@ class FinanceService:
         )
         return [(r["name"], round(float(r["a"]), 2)) for r in rows]
 
-    def monthly_expenses(self, months: int = 12) -> list[tuple[str, float, float]]:
-        """(YYYY-MM, expenses, other income) for the last N months, oldest first."""
-        first = (dt.date.today().replace(day=1) - dt.timedelta(days=31 * (months - 1))).replace(day=1)
+    def monthly_expenses(self, months: int = 12, today: dt.date | None = None) -> list[tuple[str, float, float]]:
+        """(YYYY-MM, expenses, other income) for the last N calendar months up to ``today``'s, oldest first."""
+        today = today or dt.date.today()
+        y, m = divmod(today.year * 12 + today.month - months, 12)  # first of the earliest month
+        first = dt.date(y, m + 1, 1)
         rows = self.db.fetchall(
             "SELECT substr(date, 1, 7) AS m, "
             "COALESCE(SUM(CASE WHEN kind = 'expense' THEN amount END), 0) AS ex, "
