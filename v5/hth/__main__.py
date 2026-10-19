@@ -19,7 +19,16 @@ def main() -> int:
     setup_logging(settings.log_dir)
     previous = previous_version_db(settings)
     if previous is not None:
-        copy_previous_version(previous, settings.db_path)
+        try:
+            copy_previous_version(previous, settings.db_path)
+        except Exception as exc:  # noqa: BLE001 - say what happened instead of a traceback
+            # nothing was created (the copy goes to a temp file first), so the next start retries
+            logging.getLogger("hth").exception("could not copy %s", previous)
+            _startup_error(
+                f"Could not copy the v4 data from\n{previous}\n\n{exc}\n\n"
+                "Nothing was changed. Close High Table Holdings v4 if it is open and start v5 again."
+            )
+            return 1
         logging.getLogger("hth").info("first v5 start: copied %s (read-only) to %s", previous, settings.db_path)
     db = Database(settings.db_path)
     initialize(db, settings.backup_dir)
@@ -40,6 +49,19 @@ def main() -> int:
 
     run_app(db, settings)
     return 0
+
+
+def _startup_error(message: str) -> None:
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("High Table Holdings", message, parent=root)
+        root.destroy()
+    except Exception:  # noqa: BLE001 - no display: the log and stderr still have it
+        print(message, file=sys.stderr)
 
 
 if __name__ == "__main__":
