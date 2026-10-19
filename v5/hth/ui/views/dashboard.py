@@ -70,7 +70,7 @@ class DashboardView(BaseView):
         nav = self.ctx.navigate
         self.k_recv = KpiTile(tiles, "Receivable", accent="danger", command=lambda: nav("customers"))
         self.k_pay = KpiTile(tiles, "Payable", accent="warning", command=lambda: nav("customers"))
-        self.k_today = KpiTile(tiles, "Today", accent="chart2", command=lambda: nav("sales"))
+        self.k_today = KpiTile(tiles, "Today", accent="chart2", command=lambda: nav("reports", report="daybook"))
         self.k_krar = KpiTile(tiles, "Krar overdue", accent="chart4", command=lambda: nav("karar"))
         self.k_stock = KpiTile(tiles, "Stock value", accent="success", command=lambda: nav("items"))
         self.k_money = KpiTile(tiles, "Cash & bank", accent="chart3", command=lambda: nav("finance"))

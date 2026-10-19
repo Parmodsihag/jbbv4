@@ -784,7 +784,7 @@ class ReportsView(BaseView):
     def on_show(self, report: str | None = None, **kwargs) -> None:
         if report:
             for spec in REPORTS:
-                if spec.key == report:
+                if spec.key == report and self.ctx.can(spec.permission):
                     self.select(spec)
         elif self.spec is None:
             self.select(REPORTS[0])
