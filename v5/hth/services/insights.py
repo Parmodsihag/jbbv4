@@ -24,6 +24,8 @@ INACTIVE_DAYS = 180
 EXPIRY_DAYS = 30
 REORDER_WINDOW_DAYS = 30
 BACKUP_STALE_DAYS = 2
+MONEY_UNITS = {"INR", "RS", "RUPEE", "RUPEES"}
+MONEY_NAMES = {"CASH", "UPI", "BANK"}
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,8 @@ class InsightsService:
             sold, stock = float(r["sold"]), float(r["stock"])
             if r["category"] == DEFAULTER_CATEGORY or sold <= 0 or stock > sold:
                 continue
+            if (r["unit"] or "").upper() in MONEY_UNITS or (r["name"] or "").strip().upper() in MONEY_NAMES:
+                continue  # money kept as an "item" (v3 habit) is not stock to reorder
             rate = sold / window_days
             out.append(
                 ReorderLine(
@@ -150,9 +154,18 @@ class InsightsService:
         errors = sum(1 for f in findings if f.severity == "ERROR")
         future = sum(1 for f in findings if f.issue == "Entry dated in the future")
         if errors:
+            kinds: dict[str, int] = {}
+            for f in findings:
+                if f.severity == "ERROR":
+                    kinds[f.issue] = kinds.get(f.issue, 0) + 1
+            what = ", ".join(f"{issue.lower()} ×{n}" for issue, n in sorted(kinds.items(), key=lambda kv: -kv[1]))
             out.append(
                 Insight(
-                    "danger", f"{errors} data error(s)", "wrong numbers until fixed", "reports", {"report": "datacheck"}
+                    "danger",
+                    f"{errors} data error(s)",
+                    f"{what} - fix before trusting totals",
+                    "reports",
+                    {"report": "datacheck"},
                 )
             )
         if future:
