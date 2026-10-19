@@ -81,6 +81,27 @@ class SalesView(BaseView):
         )
         self.item.pack(fill="x")
         self.item.var.trace_add("write", lambda *_: self._on_item_text())
+        chips = ctk.CTkFrame(item.body, fg_color="transparent")
+        chips.pack(fill="x", pady=(4, 0))
+        ctk.CTkLabel(chips, text="Quick:", font=theme.font(11), text_color=theme.color("muted")).pack(side="left")
+        for label in ("CASH", "UPI", "BANK"):
+            ctk.CTkButton(
+                chips,
+                text=label,
+                width=56,
+                height=24,
+                font=theme.font(11),
+                fg_color=theme.color("surface2"),
+                hover_color=theme.color("surface3"),
+                text_color=theme.color("text"),
+                command=lambda t=label: self.quick_money(t),
+            ).pack(side="left", padx=(6, 0))
+        ctk.CTkLabel(
+            chips,
+            text="money in / out - then the amount, then Credit (received) or Debit (paid)",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
+        ).pack(side="left", padx=8)
         self.stock_label = ctk.CTkLabel(
             inner, text="", font=theme.font(12), anchor="w", text_color=theme.color("muted")
         )
@@ -209,6 +230,9 @@ class SalesView(BaseView):
         self.undo_button = secondary_button(undo_bar, "↶ Undo last entry", self.undo_last, width=150)
         self.undo_button.pack(side="right")
         self.undo_button.configure(state="disabled")
+        self.slip_button = secondary_button(undo_bar, "Print slip", self.print_slip, width=100)
+        self.slip_button.pack(side="right", padx=6)
+        self.slip_button.configure(state="disabled")
         self.recent = DataTable(
             right,
             [
@@ -562,6 +586,35 @@ class SalesView(BaseView):
             msg = f"{label} of {money(result.amount)} recorded{note}"
         self._after_post([result], msg, customer_id)
 
+    def quick_money(self, label: str) -> None:
+        """Money entry in two keystrokes: item = CASH / UPI / BANK, quantity 1, cursor on price."""
+        self.item.set(None, label)
+        self.item.hide()
+        self.quantity.set("1")
+        name = {"CASH": "CASH", "UPI": "UPI", "BANK": "BANK"}[label]
+        for account, _id in self._money_ids.items():
+            if account.upper().startswith(name):
+                self.money.set(account)
+                break
+        self.price.focus()
+
+    def print_slip(self) -> None:
+        if self._last is None:
+            return
+        from hth.services.slips import SlipService
+        from hth.ui.format import open_path
+
+        results = self._last[0]
+        cid = results[0].customer_id if results else None
+        if cid is None:
+            return
+        try:
+            path = SlipService(self.ctx.db).write(results, cid, self.ctx.settings.export_dir, self.ctx.username)
+        except ValidationError as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        open_path(path)
+
     def _after_post(self, results: list, msg: str, customer_id: int) -> None:
         import time
 
@@ -569,6 +622,7 @@ class SalesView(BaseView):
         self.ctx.status(msg)
         self._last = (results, msg, time.monotonic())
         self.undo_button.configure(state="normal")
+        self.slip_button.configure(state="normal")
         self.undo_label.configure(text=f"Last: {msg}")
         self._show_balance(customer_id)
         self._clear_item_fields()
@@ -605,6 +659,7 @@ class SalesView(BaseView):
     def _forget_last(self) -> None:
         self._last = None
         self.undo_button.configure(state="disabled")
+        self.slip_button.configure(state="disabled")
         self.undo_label.configure(text="")
 
 

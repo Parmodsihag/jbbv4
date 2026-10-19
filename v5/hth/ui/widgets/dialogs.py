@@ -161,3 +161,61 @@ def run_form(parent, title: str, fields: Sequence[Field], on_submit, submit_text
     dialog = FormDialog(parent, title, fields, on_submit, submit_text)
     parent.wait_window(dialog)
     return dialog.result
+
+
+GENERAL_SHORTCUTS = [
+    ("Ctrl+K", "Search accounts, items and bills"),
+    ("Ctrl+L", "Lock the screen (your work stays)"),
+    ("F1", "This sheet"),
+]
+SALES_SHORTCUTS = [
+    ("Enter", "Quantity → price → add line"),
+    ("Ctrl+Enter", "Debit (sale / pay out)"),
+    ("Ctrl+Shift+Enter", "Credit (receive / purchase)"),
+    ("Ctrl+Z", "Undo the last entry (15 minutes)"),
+    ("Alt+Up / Alt+Down", "Next / previous day in a date field"),
+]
+TABLE_SHORTCUTS = [
+    ("Double-click / Enter", "Open the row (ledger, item, bill)"),
+    ("Ctrl+C", "Copy the selected row"),
+    ("Right-click", "Copy row / copy all rows for Excel or WhatsApp"),
+    ("Click a column title", "Sort; click again to reverse"),
+]
+
+
+class ShortcutSheet(ctk.CTkToplevel):
+    def __init__(self, parent, screens: list[tuple[str, str]]):
+        super().__init__(parent)
+        self.title("Keyboard shortcuts")
+        self.resizable(False, False)
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=22, pady=18)
+        ctk.CTkLabel(body, text="Keyboard shortcuts", font=theme.font(18, "bold"), anchor="w").grid(
+            row=0, column=0, columnspan=4, sticky="w", pady=(0, 8)
+        )
+        groups = [
+            ("Screens", screens),
+            ("Everywhere", GENERAL_SHORTCUTS),
+            ("Sales", SALES_SHORTCUTS),
+            ("Tables", TABLE_SHORTCUTS),
+        ]
+        for col, chunk in enumerate((groups[:2], groups[2:])):
+            r = 1
+            for title, items in chunk:
+                ctk.CTkLabel(
+                    body, text=title.upper(), font=theme.font(11, "bold"), text_color=theme.color("muted"), anchor="w"
+                ).grid(row=r, column=col * 2, columnspan=2, sticky="w", pady=(10, 2))
+                r += 1
+                for keys, what in items:
+                    ctk.CTkLabel(body, text=keys, font=theme.font(12, "bold"), anchor="w", width=150).grid(
+                        row=r, column=col * 2, sticky="w", padx=(0, 8)
+                    )
+                    ctk.CTkLabel(body, text=what, font=theme.font(12), anchor="w").grid(
+                        row=r, column=col * 2 + 1, sticky="w", padx=(0, 28)
+                    )
+                    r += 1
+        ctk.CTkButton(self, text="Close", width=100, command=self.destroy, font=theme.font(13)).pack(pady=(0, 16))
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<F1>", lambda e: self.destroy())
+        self.transient(parent)
+        self.after(50, self.focus_set)

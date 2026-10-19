@@ -314,3 +314,19 @@ def test_customer_search_matches_all_words(accounts, db):
     hits = SearchService(db).search("rohtak ram", kinds={"customer"})
     assert [h.id for h in hits] == [a.id]
     assert SearchService(db).search(str(a.id), kinds={"customer"})[0].id == a.id
+
+
+def test_counter_slip(accounts, inventory, sales, db):
+    from hth.services.sales import SaleLine
+    from hth.services.slips import SlipService
+
+    c = accounts.add_customer("ram kumar", "rohtak", 100, "2026-08-01")
+    urea = inventory.add_item("UREA", stock_value=250, opening_quantity=10, unit="BAG")
+    results = sales.record_lines("P", "2026-08-29", c.id, [SaleLine("UREA", 2, 300, urea.id, "BAG")], "2", "admin")
+    html = SlipService(db).html(results, c.id, "admin")
+    assert "SALE" in html and "RAM KUMAR" in html and "600.00" in html and "UREA" in html
+    assert "Account balance" in html
+    from hth.services.accounts import ValidationError
+
+    with pytest.raises(ValidationError, match="Nothing to print"):
+        SlipService(db).html([], c.id)

@@ -416,6 +416,7 @@ class App(ctk.CTk):
         self.bind("<Control-K>", lambda e: self.open_search())
         self.bind("<Control-l>", lambda e: self.lock())
         self.bind("<Control-L>", lambda e: self.lock())
+        self.bind("<F1>", lambda e: self.show_shortcuts())
 
         self.content = ctk.CTkFrame(shell, fg_color="transparent")
         self.content.grid(row=1, column=1, sticky="nsew", padx=12, pady=8)
@@ -461,6 +462,15 @@ class App(ctk.CTk):
             when = dt.datetime.fromtimestamp(last.stat().st_mtime)
             text = f"Last backup {when:%d %b %H:%M}"
         self.backup_label.configure(text=text)
+
+    def show_shortcuts(self) -> None:
+        """F1: every keyboard shortcut on one sheet."""
+        if not self.is_signed_in or self.is_locked:
+            return
+        from hth.ui.widgets.dialogs import ShortcutSheet
+
+        screens = [(f"Alt+{s.upper()}", label) for _k, label, s, perm, _c in self._registry if s and self.ctx.can(perm)]
+        ShortcutSheet(self, screens)
 
     # Sidebar mode ------------------------------------------------------------------------
     def toggle_sidebar(self) -> None:
