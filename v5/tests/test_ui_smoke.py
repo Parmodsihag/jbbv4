@@ -425,3 +425,33 @@ def test_v5_ledger_views_and_snapshot(app):
     sales = app._views["sales"]
     assert app._active == "sales" and sales.account.get_key() == c.id
     assert sales.snapshot.customer_id == c.id and sales.snapshot.table.rows[0][1] == "DAP"
+
+
+def test_v5_quick_money_slip_and_shortcuts(app, monkeypatch):
+    ctx = app.ctx
+    c = ctx.accounts.add_customer("RAM", "X", 1000, "2026-01-01")
+    _login(app, "admin", "admin")
+    app.navigate("sales")
+    _pump(app)
+    sales = app._views["sales"]
+    sales.account.set(c.id)
+    sales.quick_money("CASH")
+    assert sales.item.get_text() == "CASH" and sales.quantity.get() == "1"
+    _pump(app, 5)
+    assert sales.money.winfo_manager() and sales.money.get() == "CASH"
+    sales.price.set("400")
+    sales.submit("M")
+    _pump(app)
+    assert ctx.accounts.get_balance(c.id) < 1000
+    opened = []
+    monkeypatch.setattr("hth.ui.format.open_path", lambda p: opened.append(p))
+    sales.print_slip()
+    assert opened and opened[0].exists() and "RECEIPT" in opened[0].read_text(encoding="utf-8")
+
+    app.show_shortcuts()
+    _pump(app, 5)
+    from hth.ui.widgets.dialogs import ShortcutSheet
+
+    sheets = [w for w in app.winfo_children() if isinstance(w, ShortcutSheet)]
+    assert sheets
+    sheets[0].destroy()
