@@ -50,12 +50,17 @@ Collections list · Interest by financial year · Promised receipts forecast · 
 Reorder suggestions · GST summary (invoices) · Staff activity. Every report has a row filter.
 
 ### Everywhere
+- **Text size** 90 / 100 / 115 / 130 % (Settings → Appearance): every widget, table font,
+  row height and column width grows together.
 - **Indian digit grouping** (12,34,567.00) by default, switchable to international; used by
   screens, statements, reminders, search results and chart axes.
 - New shell: icon sidebar with shortcut hints, collapsible to icons; screen subtitles; the
   header date rolls over at midnight; last-backup time in the status bar; theme remembered.
 - Ledger: *All / Current period / This FY / Last 90 days*, find box, *New entry ▸*,
-  *WhatsApp balance*.
+  *WhatsApp balance*, *Promise…* (record or move the krar date).
+- Lists: Items filter by *In stock / Out-negative / Expiring* and category; Accounts by
+  *Owe us / We owe / Settled*. Dashboard *Today* opens the day book.
+- `Start High Table Holdings v5.bat` starts the app without a console window.
 - Tables: Enter opens a row, `Ctrl+C` copies it, right-click copies all rows for Excel /
   WhatsApp. Search boxes and `Ctrl+K` match every word in any order.
 - `F1` lists every keyboard shortcut.
@@ -81,6 +86,10 @@ Reorder suggestions · GST summary (invoices) · Staff activity. Every report ha
 - Karar's toolbar overlapped its Overdue / Today switch at normal window sizes, and it
   opened on an empty *Today* tab while promises were overdue.
 - Crop Trade's Sales table was squeezed to its header row.
+- Opening Reports on a given report (e.g. from a dashboard link) skipped the report's
+  permission check, so an employee could reach admin-only reports such as Data check.
+- A failed first-start copy of v4's data now stops with a clear message and leaves nothing
+  behind, so the next start tries again.
 - Sales screen panels (crop fields, money account) could end up in the wrong state when
   toggled quickly (`winfo_ismapped` is only true after Tk's idle pass).
 

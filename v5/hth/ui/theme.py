@@ -62,6 +62,26 @@ def font(size: int = 13, weight: str = "normal", family: str | None = None) -> c
     return _fonts[key]
 
 
+TEXT_SCALES = (0.9, 1.0, 1.15, 1.3)
+_text_scale = 1.0
+
+
+def set_text_scale(scale: float) -> None:
+    """Shop-wide text size: customtkinter widgets and the ttk tables grow together."""
+    global _text_scale
+    _text_scale = scale if scale in TEXT_SCALES else 1.0
+    ctk.set_widget_scaling(_text_scale)
+
+
+def text_scale() -> float:
+    return _text_scale
+
+
+def table_font(bold: bool = False) -> tuple:
+    size = max(9, round(12 * _text_scale))
+    return (FONT_FAMILY, size, "bold") if bold else (FONT_FAMILY, size)
+
+
 def style_treeview() -> None:
     style = ttk.Style()
     try:
@@ -73,16 +93,16 @@ def style_treeview() -> None:
         background=current("surface"),
         fieldbackground=current("surface"),
         foreground=current("text"),
-        rowheight=30,
+        rowheight=round(30 * _text_scale),
         borderwidth=0,
         relief="flat",
-        font=(FONT_FAMILY, 12),
+        font=table_font(),
     )
     style.configure(
         "HTH.Treeview.Heading",
         background=current("surface2"),
         foreground=current("text"),
-        font=(FONT_FAMILY, 12, "bold"),
+        font=table_font(bold=True),
         relief="flat",
         padding=(8, 6),
     )

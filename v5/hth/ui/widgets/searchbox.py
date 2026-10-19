@@ -147,7 +147,7 @@ class SearchBox(ctk.CTkFrame):
         if self._listbox is None:
             self._listbox = tk.Listbox(
                 top,
-                font=(theme.FONT_FAMILY, 12),
+                font=theme.table_font(),
                 bg=theme.current("surface"),
                 fg=theme.current("text"),
                 selectbackground=theme.current("select"),

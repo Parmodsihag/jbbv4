@@ -332,3 +332,12 @@ def test_counter_slip(accounts, inventory, sales, db):
 
     with pytest.raises(ValidationError, match="Nothing to print"):
         SlipService(db).html([], c.id)
+
+
+def test_text_scale_preference(db):
+    prefs = Preferences(db)
+    assert prefs.text_scale() == 1.0
+    prefs.set_text_scale(1.3)
+    assert Preferences(db).text_scale() == 1.3
+    with pytest.raises(ValueError):
+        prefs.set_text_scale(2.0)
