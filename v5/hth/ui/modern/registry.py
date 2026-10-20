@@ -35,6 +35,7 @@ class Area:
 def build_areas(modules: Iterable = ()) -> list[Area]:
     """Every area with all its tabs (before permissions).  ``modules`` are the discovered
     ``ModuleSpec``s; each one lands in the area its spec names, or gets an area of its own."""
+    from hth.ui.modern.areas.counter import CounterView
     from hth.ui.views.assistant import AssistantView
     from hth.ui.views.customers import CustomersView
     from hth.ui.views.dashboard import DashboardView
@@ -47,7 +48,12 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
 
     areas = {
         "today": Area("today", "Today", (Tab("dashboard", "Today", DashboardView, Permission.VIEW_DASHBOARD, "d"),)),
-        "counter": Area("counter", "Counter", (Tab("sales", "Counter", SalesView, Permission.RECORD_SALE, "s"),)),
+        "counter": Area(
+            "counter",
+            "Counter",
+            (Tab("sales", "Counter", SalesView, Permission.RECORD_SALE, "s"),),
+            factory=CounterView,  # rebuilt (v5.5); the tab keeps "sales" and Alt+S pointing here
+        ),
         "khata": Area(
             "khata",
             "Khata",

@@ -87,7 +87,8 @@ def test_admin_lands_on_today_and_old_keys_find_their_area(app):
         app.navigate(old)
         _pump(app, 20)
         assert app._active == area, old
-        assert _area(app, area).current == tab, old
+        if hasattr(_area(app, area), "current"):  # a rebuilt area (Counter) has no tabs
+            assert _area(app, area).current == tab, old
 
     app.navigate("customers", customer_id=c.id)
     _pump(app)
@@ -95,23 +96,101 @@ def test_admin_lands_on_today_and_old_keys_find_their_area(app):
     # Alt-letters of the classic layout are bound for the new one
     assert {"<Alt-s>", "<Alt-k>", "<Alt-b>", "<Alt-u>", "<Alt-h>"} <= set(app._shell_keys)
     assert ("Alt+K", "Khata › Collections") in app._modern.shortcut_list()
+    from hth.ui.widgets.dialogs import ShortcutSheet
+
+    app.show_shortcuts()  # F1: the new layout's areas and the Counter's keys
+    _pump(app)
+    sheets = [w for w in app.winfo_children() if isinstance(w, ShortcutSheet)]
+    assert sheets
+    sheets[0].destroy()
 
 
-def test_a_sale_through_the_counter_area(app):
+def _counter(app):
+    app.navigate("counter")
+    _pump(app)
+    return app._views["counter"]
+
+
+def test_counter_sale_with_lines_and_paid_now(app):
     ctx = app.ctx
     c = ctx.accounts.add_customer("RAM", "X", 0, "2026-01-01")
-    item = ctx.inventory.add_item("UREA", 260, 300, opening_quantity=10)
+    urea = ctx.inventory.add_item("UREA", 260, 300, unit="BAG", opening_quantity=10)
+    dap = ctx.inventory.add_item("DAP", 1290, 1350, unit="BAG", opening_quantity=5)
     _login(app, "admin", "admin")
-    app.navigate("sales")
+    view = _counter(app)
+    assert app.find_view("sales") is view  # the old key reaches the new Counter
+    assert view.intent.key == "sale"
+    view.pick_customer(c.id)
+    for item, qty in ((urea, "4"), (dap, "2")):
+        view.item.set(item.id)
+        view._on_item(item.id, focus=False)
+        view.qty.set(qty)
+        view.add_line()
+    assert len(view._lines) == 2 and view.rate.get() == ""
+    view.paid.insert(0, "1,000")
+    view.recalc()
+    assert view.stat_rows[0].value.cget("text") == "₹3,900.00"  # 4 x 300 + 2 x 1350
+    view.save()
     _pump(app)
-    sales = app.find_view("sales")
-    sales.account.set(c.id)
-    sales.item.set(item.id)
-    sales.quantity.set("2")
-    sales.price.set("300")
-    sales.submit("P")
+    assert ctx.inventory.quantity(urea.id) == 6 and ctx.inventory.quantity(dap.id) == 3
+    assert ctx.accounts.get_balance(c.id) == 2900
+    assert view._last is not None and len(view._last[0]) == 3  # two lines + the payment
+    assert not view._lines and view.paid.get() == ""
+    n = ctx.sales.undo(view._last[0], "admin")
+    assert n == 3 and ctx.accounts.get_balance(c.id) == 0
+
+
+def test_counter_payment_in_keeps_the_promise_and_settles(app):
+    ctx = app.ctx
+    c = ctx.accounts.add_customer("RAM", "X", 1000, "2026-01-01", tag="2")
+    ctx.krar.add_or_update(c.id, "2026-01-05")
+    _login(app, "admin", "admin")
+    view = _counter(app)
+    view.set_intent("in")
+    view.pick_customer(c.id)
+    assert view._promise == "2026-01-05" and view.keep_promise.get() == 1
+    view.amount.insert(0, "400")
+    view.recalc()
+    view.save()
     _pump(app)
-    assert ctx.inventory.quantity(item.id) == 8
+    assert ctx.accounts.get_balance(c.id) == 600
+    assert ctx.krar.unsettled_dates(c.id) == []  # the promise was marked kept
+    # settle the rest: tag 0 writes the payment, the settled amount and the discount
+    view.amount.insert(0, "500")
+    view.settle.select()
+    view.save()
+    _pump(app)
+    assert ctx.accounts.get_balance(c.id) == 0
+    # Ctrl+Shift+Enter never saves a sale
+    view.set_intent("sale")
+    view._save_credit()
+    assert ctx.accounts.get_balance(c.id) == 0
+
+
+def test_counter_crop_purchase_makes_a_lot(app):
+    from hth.modules.crop_trading.service import CropService
+
+    ctx = app.ctx
+    farmer = ctx.accounts.add_customer("FARMER", "X", 0, "2026-01-01")
+    wheat = CropService(ctx.db).add_crop("WHEAT", "KG")
+    _login(app, "admin", "admin")
+    view = _counter(app)
+    view.set_intent("purchase")
+    view.pick_customer(farmer.id)
+    view.item.refresh()
+    view.item.set(wheat.id)
+    view._on_item(wheat.id, focus=False)
+    assert view._is_crop() and view.interest.get() == "No interest"
+    assert view.crop.winfo_manager() and str(view.add_button.cget("state")) == "disabled"
+    view.qty.set("1000")
+    view.kaat.set("10")
+    view.rate.set("24")
+    view.recalc()
+    assert view.net_label.cget("text").startswith("990")
+    view.save()
+    _pump(app)
+    assert ctx.inventory.quantity(wheat.id) == 990
+    assert ctx.accounts.get_balance(farmer.id) == -990 * 24  # we owe the farmer
 
 
 def test_employee_lands_on_counter_and_sees_no_admin_screens(app):

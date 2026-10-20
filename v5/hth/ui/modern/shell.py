@@ -76,12 +76,12 @@ class ModernShell(ctk.CTkFrame):
     def find_view(self, key: str):
         """A screen by its classic key, wherever it sits (``assistant`` lives in Ask).  A
         screen inside an area wins over an area of the same name (Settings › Settings)."""
-        app = self.app
-        for view in app._views.values():
-            child = getattr(view, "child", None)
-            if callable(child) and child(key) is not None:
-                return child(key)
-        return app._views.get(key)
+        area_key, _kwargs = registry.resolve(self.areas, key, {})
+        view = self.app._views.get(area_key or key)
+        child = getattr(view, "child", None)
+        if callable(child):
+            return child(key) or (view if area_key == key else None)
+        return view
 
     def shortcut_list(self) -> list[tuple[str, str]]:
         """(keys, where) for the F1 sheet: every Alt-letter of this layout."""

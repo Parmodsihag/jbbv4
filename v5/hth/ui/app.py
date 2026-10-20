@@ -366,7 +366,10 @@ class App(ctk.CTk):
 
     # Screens bind these on the window themselves (Sales: Ctrl+Enter, Ctrl+Z); a rebuilt shell
     # has new screens, so the old screens' bindings must not outlive them.
-    _VIEW_KEYS = ("<Control-Return>", "<Control-Shift-Return>", "<Control-z>")
+    _VIEW_KEYS = (
+        "<Control-Return>", "<Control-Shift-Return>", "<Control-z>",
+        "<Alt-Key-1>", "<Alt-Key-2>", "<Alt-Key-3>", "<Alt-Key-4>",
+    )  # fmt: skip
     # Widgets of the shell that App methods reach with hasattr().
     _SHELL_ATTRS = (
         "sidebar", "menu_button", "brand_text", "user_chip", "user_text", "account_buttons", "lock_button",
@@ -585,11 +588,11 @@ class App(ctk.CTk):
         from hth.ui.widgets.dialogs import ShortcutSheet
 
         if self._modern is not None:
-            screens = self._modern.shortcut_list()
-        else:
-            screens = [
-                (f"Alt+{s.upper()}", label) for _k, label, s, perm, _c in self._registry if s and self.ctx.can(perm)
-            ]
+            from hth.ui.widgets.dialogs import COUNTER_SHORTCUTS
+
+            ShortcutSheet(self, self._modern.shortcut_list(), "Counter", COUNTER_SHORTCUTS)
+            return
+        screens = [(f"Alt+{s.upper()}", label) for _k, label, s, perm, _c in self._registry if s and self.ctx.can(perm)]
         ShortcutSheet(self, screens)
 
     # Sidebar mode ------------------------------------------------------------------------
