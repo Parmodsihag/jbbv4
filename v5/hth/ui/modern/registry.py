@@ -37,6 +37,7 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
     ``ModuleSpec``s; each one lands in the area its spec names, or gets an area of its own."""
     from hth.ui.modern.areas.counter import CounterView
     from hth.ui.modern.areas.khata import KhataView
+    from hth.ui.modern.areas.money import MoneyView
     from hth.ui.modern.areas.stock import StockView
     from hth.ui.modern.areas.today import TodayView
     from hth.ui.views.assistant import AssistantView
@@ -77,7 +78,7 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
             (Tab("items", "Items", ItemsView, Permission.ADD_ITEM, "i"),),
             factory=StockView,  # rebuilt (v5.5): items; the crop module's screen is hosted inside
         ),
-        "money": Area("money", "Money", ()),
+        "money": Area("money", "Money", (), factory=MoneyView),  # rebuilt (v5.5); its tabs come from modules
         "reports": Area("reports", "Reports", (Tab("reports", "Reports", ReportsView, Permission.VIEW_REPORTS, "r"),)),
     }
     extra: list[Area] = []
@@ -117,7 +118,7 @@ def allowed(areas: Iterable[Area], can: Callable[[Permission | None], bool]) -> 
     out = []
     for area in areas:
         tabs = tuple(t for t in area.tabs if can(t.permission))
-        if tabs or (area.factory is not None and not area.tabs):
+        if tabs:  # an area shows only when at least one of its screens may be opened
             out.append(replace(area, tabs=tabs))
     return out
 

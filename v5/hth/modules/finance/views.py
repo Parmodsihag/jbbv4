@@ -38,10 +38,12 @@ class FinanceView(BaseView):
         self.svc.ensure_defaults()
         self.tabs = _tabview(self)
         self.tabs.pack(fill="both", expand=True, padx=4, pady=4)
-        self.tabs.add("Cash book")
-        self.book = CashBookPanel(self.tabs.tab("Cash book"), self)
-        self.book.pack(fill="both", expand=True)
-        self.setup = self.reports = None
+        self.book = self.setup = self.reports = None
+        # the new layout (v5.5) has its own cash book in Money; there this screen is Reports & Setup
+        if getattr(getattr(self.ctx, "app", None), "layout", "classic") != "new":
+            self.tabs.add("Cash book")
+            self.book = CashBookPanel(self.tabs.tab("Cash book"), self)
+            self.book.pack(fill="both", expand=True)
         if self.ctx.can(Permission.FINANCE_REPORTS):
             self.tabs.add("Reports")
             self.reports = FinanceReportsPanel(self.tabs.tab("Reports"), self)
@@ -62,6 +64,10 @@ class FinanceView(BaseView):
                     t.restyle()
 
     # helpers shared by panels
+    def reload_book(self) -> None:
+        if self.book is not None:
+            self.book.reload()
+
     def account_names(self) -> list[str]:
         return [a.name for a in self.svc.money_accounts()]
 
@@ -423,7 +429,7 @@ class SetupPanel(ctk.CTkFrame):
             "Create",
         ):
             self.reload()
-            self.view.book.reload()
+            self.view.reload_book()
 
     def edit_account(self) -> None:
         a = self._selected_account()
@@ -451,7 +457,7 @@ class SetupPanel(ctk.CTkFrame):
             ),
         ):
             self.reload()
-            self.view.book.reload()
+            self.view.reload_book()
 
     def set_default(self) -> None:
         a = self._selected_account()
@@ -465,7 +471,7 @@ class SetupPanel(ctk.CTkFrame):
         if a and confirm(self, "Account", f"{'Deactivate' if a.is_active else 'Activate'} {a.name}?"):
             self.svc.update_account(a.id, self.ctx.username, is_active=not a.is_active)
             self.reload()
-            self.view.book.reload()
+            self.view.reload_book()
 
     # heads
     def _selected_head(self):
@@ -541,7 +547,7 @@ class SetupPanel(ctk.CTkFrame):
             posted = self.svc.post_due(self.ctx.username)
             self.ctx.toast(f"{posted} expenses posted", "success")
             self.reload()
-            self.view.book.reload()
+            self.view.reload_book()
 
     def toggle_recurring(self) -> None:
         row = self.rec_table.selected_row()

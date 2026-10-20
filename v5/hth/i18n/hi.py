@@ -761,4 +761,29 @@ HI.update({
     'The khata entry it came from is not changed.': 'जिस खाता एंट्री से यह बनी, वह नहीं बदलेगी।',
     'Movement deleted': 'आवाजाही हटाई',
 })
+
+# The new layout's Money (v5.5).
+HI.update({
+    '{} monthly expense(s) due': '{} महीने का खर्च बाकी',
+    'Closing {}': 'अंतिम {}',
+    'In {}': 'आया {}',
+    'Out {}': 'गया {}',
+    'Last 30 days': 'पिछले 30 दिन',
+    'Money in': 'पैसा आया',
+    'Money out': 'पैसा गया',
+    'More ▾': 'और ▾',
+    'Reports & setup': 'रिपोर्ट और सेटअप',
+    'This month': 'यह महीना',
+    'This week': 'यह हफ़्ता',
+    'default for Counter': 'काउंटर के लिए पहले से',
+    '{} so far': '{} अब तक',
+    'nothing yet': 'अभी कुछ नहीं',
+    'P&L': 'लाभ-हानि',
+    'Add a money account in Reports & setup': 'रिपोर्ट और सेटअप में पैसे का खाता जोड़ें',
+    'Add a money account first (Reports & setup › Setup)': 'पहले पैसे का खाता जोड़ें (रिपोर्ट और सेटअप › सेटअप)',
+    'No {} heads - add one in Reports & setup › Setup': 'कोई {} मद नहीं - रिपोर्ट और सेटअप › सेटअप में जोड़ें',
+    'Delete entry ({}, {})?': 'एंट्री ({}, {}) हटाएँ?',
+    "The ledger entry it came from is NOT deleted - remove that from the customer's khata.": 'जिस खाता एंट्री से यह आई, वह नहीं हटेगी - उसे ग्राहक के खाते से हटाएँ।',
+    '{} entries · opening {}': '{} एंट्री · शुरुआती {}',
+})
 # fmt: on
