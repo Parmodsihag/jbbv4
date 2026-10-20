@@ -3,8 +3,9 @@
 Spoken Hinglish comes out of a Hindi recogniser in Devanagari - *"रमेश का लास्ट मंथ का
 बैलेंस बताओ"* - which the assistant reads like a typed question (the ``sp`` corpus style).
 
-* Model: Vosk ``vosk-model-small-hi-0.22`` (42 MB download, Apache 2.0), installed from
-  Settings -> Assistant -> Install voice model into ``<data>/voice``.  No AVX needed.
+* Model: Vosk ``vosk-model-small-hi-0.22`` (42 MB zip, Apache 2.0).  It ships with the app in
+  ``bundled/voice/`` and is unpacked into ``<data>/voice`` the first time the Assistant opens
+  (``ensure_model``); another model can be installed from Settings -> Assistant.  No AVX needed.
 * **Restricted vocabulary** - the System 1 part: the recogniser may only choose among the
   question words of the corpus, numbers, and the Hindi copies of the shop's customer and item
   names (and their villages).  On synthetic Hinglish questions that took word errors from 21 %
@@ -17,6 +18,8 @@ Spoken Hinglish comes out of a Hindi recogniser in Devanagari - *"रमेश �
 
 ``Listener`` streams from the microphone in a worker thread and reports level, partial words
 and the final hearing through one callback (the chat screen marshals it to Tk).
+``choose_device`` picks the real microphone - never a loopback such as "Stereo Mix", which
+can be Windows' default recording device and records only what the speakers play.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import logging
 import queue
 import shutil
 import struct
+import sys
 import threading
 import time
 import zipfile
@@ -156,16 +160,16 @@ class VoiceModel:
                 log.info("voice: model %s loaded in %.1fs", path.name, time.perf_counter() - t)
             return self._model
 
-    def recognizer(self, grammar: str | None = None):
+    def recognizer(self, grammar: str | None = None, rate: int = RATE):
         from vosk import KaldiRecognizer
 
-        rec = KaldiRecognizer(self.model(), RATE, grammar) if grammar else KaldiRecognizer(self.model(), RATE)
+        rec = KaldiRecognizer(self.model(), rate, grammar) if grammar else KaldiRecognizer(self.model(), rate)
         rec.SetWords(True)
         return rec
 
-    def transcribe(self, pcm: bytes, grammar: str | None = None) -> Heard:
-        """16 kHz mono int16 audio -> what was heard (restricted when ``grammar`` is given)."""
-        rec = self.recognizer(grammar)
+    def transcribe(self, pcm: bytes, grammar: str | None = None, rate: int = RATE) -> Heard:
+        """Mono int16 audio -> what was heard (restricted when ``grammar`` is given)."""
+        rec = self.recognizer(grammar, rate)
         for i in range(0, len(pcm), 8000):
             rec.AcceptWaveform(pcm[i : i + 8000])
         return _heard(rec.FinalResult(), grammar is not None)
@@ -246,14 +250,80 @@ def voice_spellings(
 
 
 # --- the microphone -----------------------------------------------------------------------
-Event = tuple[
-    str, object
-]  # ("level", 0..1) ("partial", text) ("final", (Heard, pcm)) ("error", text) ("timeout", None)
+# Recording devices that capture what the speakers play, not a voice ("Stereo Mix" can be
+# Windows' default recording device): never chosen automatically.
+_LOOPBACK = ("stereo mix", "what u hear", "loopback", "wave out", "stereomix", "wave mix", "mixage")
+_MIC_WORDS = ("microphone", "mic", "headset", "माइक", "array")
+SPEECH_LEVEL = 0.08  # loudness (0..1, see _level) that counts as speech; a quiet room is ~0.04
+
+
+@dataclass(frozen=True)
+class InputDevice:
+    index: int
+    name: str
+    loopback: bool
+
+
+def input_devices() -> list[InputDevice]:
+    """The PC's recording devices - the MME list (one entry per device; Windows converts to
+    16 kHz for us).  Empty when the sound library is missing."""
+    try:
+        import sounddevice as sd
+
+        devices, apis = sd.query_devices(), sd.query_hostapis()
+    except Exception:  # noqa: BLE001
+        return []
+    mme = next((i for i, a in enumerate(apis) if a["name"] == "MME"), None)
+    out = []
+    for i, d in enumerate(devices):
+        if d["max_input_channels"] <= 0 or (mme is not None and d["hostapi"] != mme):
+            continue
+        if "sound mapper" in d["name"].lower():
+            continue
+        out.append(InputDevice(i, d["name"], any(w in d["name"].lower() for w in _LOOPBACK)))
+    return out
+
+
+def _default_input() -> int | None:
+    try:
+        import sounddevice as sd
+
+        return int(sd.default.device[0])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def choose_device(saved: str = "", devices: list[InputDevice] | None = None, default: int | None = None):
+    """The microphone to listen with: the one chosen in Settings; else Windows' default
+    recording device unless that is a loopback like "Stereo Mix"; else the first microphone."""
+    devices = input_devices() if devices is None else devices
+    if not devices:
+        return None
+    if saved:
+        for d in devices:
+            if d.name == saved:
+                return d
+    default = _default_input() if default is None else default
+    for d in devices:
+        if d.index == default and not d.loopback:
+            return d
+    for d in devices:
+        if not d.loopback and any(w in d.name.lower() for w in _MIC_WORDS):
+            return d
+    return next((d for d in devices if not d.loopback), devices[0])
+
+
+# ("level", 0..1) ("partial", text) ("final", (Heard, pcm, rate)) ("error", text)
+# ("timeout", {"level": loudest 0..1, "device": name})
+Event = tuple[str, object]
 
 
 class Listener:
     """One spoken question: microphone -> restricted recogniser, in a worker thread.
 
+    Speech is noticed by loudness (above the room's own noise, measured in the first half
+    second) as well as by words, so a question in words the restricted vocabulary does not
+    have still ends as a "final" with its audio - the screen then tries the open vocabulary.
     Stops by itself when the speaker pauses (the model's end-of-utterance rule), after
     ``max_seconds``, or when nothing was said for ``quiet_seconds``; ``stop()`` ends it early.
     """
@@ -265,13 +335,17 @@ class Listener:
         on_event: Callable[[Event], None],
         max_seconds: float = 15.0,
         quiet_seconds: float = 7.0,
-        device=None,
+        device: int | None = None,
         source: Iterable[bytes] | None = None,
+        device_name: str = "",
     ):
-        """``source``: audio chunks to use instead of the microphone (a voice note, tests)."""
+        """``device``: an index from ``input_devices()`` (None: Windows' default).
+        ``source``: 16 kHz audio chunks to use instead of the microphone (a voice note, tests)."""
         self.model, self.grammar_json, self.on_event = model, grammar_json, on_event
-        self.max_seconds, self.quiet_seconds, self.device = max_seconds, quiet_seconds, device
-        self.source = source
+        self.max_seconds, self.quiet_seconds = max_seconds, quiet_seconds
+        self.device, self.device_name, self.source = device, device_name, source
+        self.rate = RATE
+        self.max_level = 0.0
         self._chunks: queue.Queue[bytes | None] = queue.Queue()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -287,44 +361,62 @@ class Listener:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def _run(self) -> None:
-        if self.source is None:
-            try:
-                import sounddevice as sd
-            except Exception as exc:  # noqa: BLE001
-                self.on_event(("error", f"microphone library missing: {exc}"))
-                return
-        try:
-            rec = self.model.recognizer(self.grammar_json)
-        except Exception as exc:  # noqa: BLE001
-            log.exception("voice model failed")
-            self.on_event(("error", str(exc)))
-            return
+    def _open(self, sd):
+        """The input stream at 16 kHz, or at the device's own rate if it refuses 16 kHz."""
 
         def callback(indata, _frames, _time, _status):
             self._chunks.put(bytes(indata))
 
-        audio = bytearray()
-        started = time.monotonic()
-        spoke_at: float | None = None
-        if self.source is not None:
-            for chunk in self.source:
-                self._chunks.put(chunk)
-            self._chunks.put(bytes(2 * RATE))  # a second of silence: the end of the question
-            self._chunks.put(None)
+        rates = [RATE]
         try:
-            stream = (
-                contextlib.nullcontext()
-                if self.source is not None
-                else sd.RawInputStream(
-                    samplerate=RATE,
-                    blocksize=RATE // 10,
+            rates.append(int(sd.query_devices(self.device, "input")["default_samplerate"]))
+        except Exception:  # noqa: BLE001
+            pass
+        last: Exception | None = None
+        for rate in rates:
+            try:
+                stream = sd.RawInputStream(
+                    samplerate=rate,
+                    blocksize=rate // 10,
                     dtype="int16",
                     channels=1,
                     callback=callback,
                     device=self.device,
                 )
-            )
+                self.rate = rate
+                return stream
+            except Exception as exc:  # noqa: BLE001 - try the next rate
+                last = exc
+        raise last or RuntimeError("no microphone")
+
+    def _run(self) -> None:
+        stream = contextlib.nullcontext()
+        if self.source is None:
+            try:
+                import sounddevice as sd
+
+                stream = self._open(sd)
+            except Exception as exc:  # noqa: BLE001 - library missing, no microphone, device busy
+                log.exception("microphone failed")
+                self.on_event(("error", str(exc)))
+                return
+        else:
+            for chunk in self.source:
+                self._chunks.put(chunk)
+            self._chunks.put(bytes(2 * RATE))  # a second of silence: the end of the question
+            self._chunks.put(None)
+        try:
+            rec = self.model.recognizer(self.grammar_json, self.rate)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("voice model failed")
+            self.on_event(("error", str(exc)))
+            return
+        restricted = self.grammar_json is not None
+        audio = bytearray()
+        room: list[float] = []
+        spoke = False
+        started = time.monotonic()
+        try:
             with stream:
                 while not self._stop.is_set():
                     try:
@@ -334,29 +426,55 @@ class Listener:
                     if chunk is None:  # the end of a recorded source
                         break
                     audio += chunk
-                    self.on_event(("level", _level(chunk)))
+                    level = _level(chunk)
+                    self.max_level = max(self.max_level, level)
+                    self.on_event(("level", level))
+                    if len(room) < 5:
+                        room.append(level)  # the first half second: the room's own noise
+                    elif level > max(SPEECH_LEVEL, 3 * sum(room) / len(room)):
+                        spoke = True
                     if rec.AcceptWaveform(chunk):
-                        heard = _heard(rec.Result(), self.grammar_json is not None)
-                        if heard.text:
-                            self.on_event(("final", (heard, bytes(audio))))
+                        heard = _heard(rec.Result(), restricted)
+                        if heard.text or spoke:  # the end of what was said, in words or not
+                            self.on_event(("final", (heard, bytes(audio), self.rate)))
                             return
                     else:
                         partial = json.loads(rec.PartialResult()).get("partial", "").replace("[unk]", "").strip()
                         if partial:
-                            spoke_at = spoke_at or time.monotonic()
+                            spoke = True
                             self.on_event(("partial", " ".join(partial.split())))
                     now = time.monotonic()
                     if now - started > self.max_seconds:
                         break
-                    if spoke_at is None and now - started > self.quiet_seconds:
-                        self.on_event(("timeout", None))
+                    if not spoke and now - started > self.quiet_seconds:
+                        self.on_event(("timeout", {"level": self.max_level, "device": self.device_name}))
                         return
-        except Exception as exc:  # noqa: BLE001 - no microphone, device busy, ...
+        except Exception as exc:  # noqa: BLE001 - the device went away, ...
             log.exception("microphone failed")
             self.on_event(("error", str(exc)))
             return
-        heard = _heard(rec.FinalResult(), self.grammar_json is not None)
-        self.on_event(("final", (heard, bytes(audio))) if heard.text else ("timeout", None))
+        heard = _heard(rec.FinalResult(), restricted)
+        if heard.text or spoke:
+            self.on_event(("final", (heard, bytes(audio), self.rate)))
+        else:
+            self.on_event(("timeout", {"level": self.max_level, "device": self.device_name}))
+
+
+def record_test(device: int | None, seconds: float = 3.0) -> tuple[float, bytes, int]:
+    """Settings -> Test microphone: (loudest level 0..1, audio, rate) from ``device``."""
+    import sounddevice as sd
+
+    rate = RATE
+    try:
+        data_ = sd.rec(int(seconds * rate), samplerate=rate, channels=1, dtype="int16", device=device)
+    except Exception:  # noqa: BLE001 - the device refuses 16 kHz: use its own rate
+        rate = int(sd.query_devices(device, "input")["default_samplerate"])
+        data_ = sd.rec(int(seconds * rate), samplerate=rate, channels=1, dtype="int16", device=device)
+    sd.wait()
+    pcm = data_.tobytes()
+    step = rate // 10 * 2
+    loudest = max((_level(pcm[i : i + step]) for i in range(0, len(pcm), step)), default=0.0)
+    return loudest, pcm, rate
 
 
 def _level(chunk: bytes) -> float:
@@ -370,7 +488,56 @@ def _level(chunk: bytes) -> float:
 
 
 # --- installing ---------------------------------------------------------------------------
-def install_zip(zip_path: Path, data_dir: Path) -> Path:
+SOURCE_FILE = "source.json"  # in <data>/voice: which zip the model came from, and how
+
+
+def bundled_dir() -> Path:
+    """``bundled/voice`` next to the code, or inside a packaged (PyInstaller) build."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return base / "bundled" / "voice"
+
+
+def bundled_zip() -> Path | None:
+    zips = sorted(bundled_dir().glob("*.zip"))
+    return zips[0] if zips else None
+
+
+def model_source(data_dir: Path) -> dict:
+    try:
+        return json.loads((voice_dir(data_dir) / SOURCE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def ensure_model(data_dir: Path) -> Path | None:
+    """The installed voice model.  The one shipped with the app is unpacked the first time, and
+    again when an update brings a different zip; a model installed in Settings is left alone."""
+    folder = find_model_dir(voice_dir(data_dir))
+    zip_path = bundled_zip()
+    if zip_path is None:
+        return folder
+    source = model_source(data_dir)
+    if folder is not None:
+        if source.get("from") == "settings":
+            return folder
+        same = source.get("zip") == zip_path.name and source.get("size") == zip_path.stat().st_size
+        if same or (not source and folder.name == zip_path.stem):  # installed before this was recorded
+            if not source:
+                _write_source(data_dir, zip_path, "bundled")
+            return folder
+    log.info("voice: unpacking the bundled model %s", zip_path.name)
+    return install_zip(zip_path, data_dir, origin="bundled")
+
+
+def _write_source(data_dir: Path, zip_path: Path, origin: str) -> None:
+    info = {"zip": zip_path.name, "size": zip_path.stat().st_size, "from": origin}
+    try:
+        (voice_dir(data_dir) / SOURCE_FILE).write_text(json.dumps(info), encoding="utf-8")
+    except OSError:
+        log.exception("could not record the voice model's source")
+
+
+def install_zip(zip_path: Path, data_dir: Path, origin: str = "settings") -> Path:
     """Unpack a Vosk model zip (as downloaded from alphacephei.com) into ``<data>/voice``.
     Members are written by their path inside the model folder only - nothing outside it."""
     dest = voice_dir(data_dir)
@@ -403,4 +570,5 @@ def install_zip(zip_path: Path, data_dir: Path) -> Path:
     found = find_model_dir(dest)
     if found is None:
         raise ValueError("The voice model could not be installed.")
+    _write_source(data_dir, Path(zip_path), origin)
     return found

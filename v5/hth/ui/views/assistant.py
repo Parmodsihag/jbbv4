@@ -61,6 +61,8 @@ class AssistantView(BaseView):
         self._heard: tuple[voice.Heard, bytes] | None = None
         self._auto_send: str | None = None
         self._spoken = False
+        self._mic_name = ""
+        self._voice_state = "missing"  # preparing | ready | missing
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -128,12 +130,16 @@ class AssistantView(BaseView):
             text, shown = self._queued
             self._queued = None
             self._ask_now(text)
-        if self.voice is not None and self.voice.available():
-            self.run_async(self._prepare_voice, self._voice_prepared, lambda exc: log.warning("voice: %s", exc))
+        if self.voice is not None and voice.backend_available():
+            self._voice_state = "preparing"
+            self.run_async(self._prepare_voice, self._voice_prepared, self._voice_failed)
 
     # Voice -------------------------------------------------------------------------------------
-    def _prepare_voice(self) -> tuple[str, dict[str, str]]:
-        """Load the voice model and build the shop's vocabulary (background thread)."""
+    def _prepare_voice(self) -> tuple[str, dict[str, str]] | None:
+        """Unpack the bundled model if needed, load it and build the shop's vocabulary (background)."""
+        if voice.ensure_model(self.ctx.settings.data_dir) is None:
+            return None
+        self.voice = voice.VoiceModel(voice.voice_dir(self.ctx.settings.data_dir))
         rows = self.ctx.db.fetchall("SELECT name_hi, details_hi FROM customers")
         names = [r["name_hi"] for r in rows] + [r["details_hi"] for r in rows]
         names += [r["name_hi"] for r in self.ctx.db.fetchall("SELECT name_hi FROM items")]
@@ -147,7 +153,15 @@ class AssistantView(BaseView):
         heard_forms = voice.shop_words(spellings.values())
         return voice.grammar(voice.question_words() | shop | heard_forms, known), spellings
 
+    def _voice_failed(self, exc: Exception) -> None:
+        log.warning("voice: %s", exc)
+        self._voice_state = "missing"
+
     def _voice_prepared(self, result) -> None:
+        if result is None:
+            self._voice_state = "missing"
+            return
+        self._voice_state = "ready"
         self._grammar, spellings = result
         if self.assistant is not None and spellings:
             self.assistant.set_voice_spellings(spellings)
@@ -156,6 +170,9 @@ class AssistantView(BaseView):
     def _voice(self) -> None:
         if self._listener is not None and self._listener.running:
             self._listener.stop()
+            return
+        if self._voice_state == "preparing":
+            self.ctx.app.toast(_t("Getting the voice ready - a moment…", "आवाज़ तैयार हो रही है - एक पल…"))
             return
         if self.voice is None or not self.voice.available():
             self.ctx.app.toast(
@@ -168,12 +185,19 @@ class AssistantView(BaseView):
             return
         if not self._ready or self._busy:
             return
+        mic = voice.choose_device(self.ctx.prefs.assistant_mic())
+        if mic is None:
+            self.ctx.app.toast(_t("No microphone found on this PC.", "इस कंप्यूटर में कोई माइक नहीं मिला।"), "error")
+            return
         self.speaker.stop()
         self._cancel_auto_send()
         self._heard = None
         self.entry.delete(0, "end") if self.entry.get() else None
         self._events = queue.Queue()
-        self._listener = voice.Listener(self.voice, self._grammar, self._events.put)
+        self._mic_name = mic.name
+        self._listener = voice.Listener(
+            self.voice, self._grammar, self._events.put, device=mic.index, device_name=mic.name
+        )
         self._listener.start()
         self.mic_button.configure(text=Raw("■"), fg_color=theme.color("danger"), text_color="#FFFFFF")
         self._set_status(_t("Listening… speak now", "सुन रहा हूँ… बोलिए"))
@@ -192,16 +216,19 @@ class AssistantView(BaseView):
                 elif kind == "partial":
                     self._show_heard(value)
                 elif kind == "final":
-                    heard, pcm = value
-                    self._heard = (heard, pcm)
-                    self._show_heard(heard.text)
-                    self._set_status(_t("Sending… tap the text to correct it", "भेज रहा हूँ… बदलना हो तो लिखे हुए पर दबाएँ"))
-                    self._auto_send = self.after(AUTO_SEND_MS, self._send_heard)
+                    heard, pcm, rate = value
+                    if heard.text:
+                        self._heard_ready(heard, pcm, rate)
+                    else:  # there was speech, but none of the shop's words: try the whole dictionary
+                        self._set_status(_t("Working out what was said…", "समझ रहा हूँ…"))
+                        self.run_async(
+                            lambda pcm=pcm, rate=rate: self.voice.transcribe(pcm, None, rate),
+                            lambda h, pcm=pcm, rate=rate: self._heard_ready(h, pcm, rate),
+                            lambda exc: self._show_status(),
+                        )
                     done = True
                 elif kind == "timeout":
-                    self._set_status(
-                        _t("I did not hear anything - tap 🎤 and speak.", "कुछ सुनाई नहीं दिया - 🎤 दबाकर बोलिए।")
-                    )
+                    self._set_status(self._nothing_heard(value or {}))
                     done = True
                 elif kind == "error":
                     self.ctx.app.toast(_t(f"Microphone: {value}", f"माइक: {value}"), "error")
@@ -213,6 +240,30 @@ class AssistantView(BaseView):
             self.mic_button.configure(text=Raw("🎤"), fg_color=theme.color("surface2"), text_color=theme.color("text"))
             return
         self.after(50, self._poll_voice)
+
+    def _heard_ready(self, heard: voice.Heard, pcm: bytes, rate: int) -> None:
+        if not heard.text:
+            self._set_status(
+                _t(
+                    "I heard a voice but could not make out the words - speak a little closer to the microphone.",
+                    "आवाज़ आई पर शब्द समझ नहीं आए - माइक के थोड़ा पास से साफ़ बोलिए।",
+                )
+            )
+            return
+        self._heard = (heard, pcm, rate)
+        self._show_heard(heard.text)
+        self._set_status(_t("Sending… tap the text to correct it", "भेज रहा हूँ… बदलना हो तो लिखे हुए पर दबाएँ"))
+        self._auto_send = self.after(AUTO_SEND_MS, self._send_heard)
+
+    def _nothing_heard(self, info: dict) -> str:
+        if info.get("level", 0.0) < 0.01:  # not even room noise: the wrong device, muted, or blocked
+            mic = info.get("device") or self._mic_name
+            return _t(
+                f"No sound is coming from “{mic}”. Choose your microphone in Settings → Assistant → "
+                "Microphone, and check that it is not muted.",
+                f"“{mic}” से कोई आवाज़ नहीं आ रही। सेटिंग्स → सहायक → माइक में अपना माइक चुनें, और देखें कि माइक बंद (mute) तो नहीं।",
+            )
+        return _t("I did not hear anything - tap 🎤 and speak.", "कुछ सुनाई नहीं दिया - 🎤 दबाकर बोलिए।")
 
     def _show_heard(self, text: str) -> None:
         self.entry.delete(0, "end")
@@ -234,7 +285,7 @@ class AssistantView(BaseView):
         self._auto_send = None
         if self._heard is None or self._busy:
             return
-        heard, pcm = self._heard
+        heard, pcm, rate = self._heard
         self._heard = None
         self.entry.delete(0, "end")
         self._spoken = True
@@ -249,7 +300,7 @@ class AssistantView(BaseView):
 
         def work():
             return self.assistant.ask_heard(
-                heard.text, self.session, alternative=lambda: self.voice.transcribe(pcm).text
+                heard.text, self.session, alternative=lambda: self.voice.transcribe(pcm, None, rate).text
             )
 
         def done(result):

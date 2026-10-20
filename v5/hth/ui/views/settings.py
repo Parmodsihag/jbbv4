@@ -195,6 +195,8 @@ class SettingsView(BaseView):
         self._build_reminders(scroll)
         self._build_categories(scroll)
 
+        self._build_updates(scroll)
+
         about = Card(scroll, "About")
         about.pack(fill="x", padx=4, pady=4)
         ctk.CTkLabel(
@@ -448,6 +450,221 @@ class SettingsView(BaseView):
             secondary_button(actions, "Fill missing", self.fill_hindi, width=120).pack(side="left", padx=8)
             secondary_button(actions, "Regenerate automatic ones", self.regenerate_hindi, width=200).pack(side="left")
 
+    # Updates -----------------------------------------------------------------------------
+    def _build_updates(self, scroll) -> None:
+        card = Card(scroll, "Updates")
+        card.pack(fill="x", padx=4, pady=4)
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(4, 16))
+        self.update_status = ctk.CTkLabel(
+            body,
+            text="",
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+            anchor="w",
+            justify="left",
+            wraplength=900,
+        )
+        self.update_status.pack(fill="x")
+        self.update_notes = ctk.CTkLabel(body, text="", font=theme.font(12), anchor="w", justify="left", wraplength=900)
+        self.update_notes.pack(fill="x", pady=(4, 0))
+        self._update_found = None
+        self._update_progress: tuple[int, int, str] | None = None
+        if self.ctx.can(Permission.MANAGE_SETTINGS):
+            actions = ctk.CTkFrame(body, fg_color="transparent")
+            actions.pack(fill="x", pady=(8, 0))
+            secondary_button(actions, "Check for updates", self.check_updates, width=160).pack(side="left")
+            self.update_install = primary_button(actions, "Install update", self.install_update, width=150)
+            self.update_install.pack(side="left", padx=8)
+            self.update_install.configure(state="disabled")
+            self.update_restart = secondary_button(actions, "Restart now", self.restart_for_update, width=130)
+            self.update_restart.pack(side="left")
+            self.update_undo = secondary_button(actions, "Undo last update", self.undo_update, width=150)
+            self.update_undo.pack(side="left", padx=8)
+            where = ctk.CTkFrame(body, fg_color="transparent")
+            where.pack(fill="x", pady=(10, 0))
+            source = self.ctx.prefs.update_source()
+            ctk.CTkLabel(where, text="Repository", font=theme.font(12)).pack(side="left", padx=(0, 6))
+            self.update_repo = ctk.CTkEntry(where, width=220, font=theme.font(12))
+            self.update_repo.insert(0, source.repo)
+            self.update_repo.pack(side="left")
+            ctk.CTkLabel(where, text="Branch", font=theme.font(12)).pack(side="left", padx=(12, 6))
+            self.update_branch = ctk.CTkEntry(where, width=110, font=theme.font(12))
+            self.update_branch.insert(0, source.branch)
+            self.update_branch.pack(side="left")
+            secondary_button(where, "Save", self.save_update_source, width=80).pack(side="left", padx=8)
+        self._show_update_status()
+
+    def _updater(self):
+        from hth.services.updates import Updater
+
+        return Updater(self.ctx.settings.data_dir, self.ctx.prefs.update_source())
+
+    def _say_update(self, en: str, hi: str) -> None:
+        from hth import i18n
+
+        self.update_status.configure(text=i18n.Raw(hi if i18n.is_hindi() else en))
+
+    def _show_update_status(self) -> None:
+        from hth import i18n
+        from hth.services import updates
+
+        up = self._updater()
+        source = up.source
+        hi = i18n.is_hindi()
+        text = (
+            f"यह कॉपी: संस्करण {__version__} · अपडेट यहाँ से: {source.web}"
+            if hi
+            else f"This copy: version {__version__} · updates from {source.web}"
+        )
+        if up.mode == "git":
+            text += " · डेवलपर कॉपी (git): अपडेट git pull से" if hi else " · a developer copy (git): updates with git pull"
+        elif up.mode == "frozen":
+            text += (
+                " · पैक की हुई कॉपी: नया संस्करण हाथ से लगाएँ" if hi else " · a packaged copy: install new versions by hand"
+            )
+        staged = updates.pending(self.ctx.settings.data_dir)
+        if staged:
+            what = "पिछला संस्करण" if staged.get("kind") == "undo" else staged.get("to")
+            text += f"\n{what} तैयार है - पूरा करने के लिए फिर से शुरू करें।" if hi else f"\n{what} is ready - restart to finish."
+        last = updates.last_result(self.ctx.settings.data_dir)
+        if last:
+            if last.get("ok"):
+                text += (
+                    f"\nपिछला अपडेट: {last.get('from')} → {last.get('to')} ({last.get('when', '')[:16]})"
+                    if hi
+                    else f"\nLast update: {last.get('from')} → {last.get('to')} ({last.get('when', '')[:16]})"
+                )
+            else:
+                text += (
+                    f"\nपिछला अपडेट नहीं लग पाया, पुराना संस्करण वैसा ही रहा: {last.get('error', '')}"
+                    if hi
+                    else f"\nThe last update could not be put in; the old version was kept: {last.get('error', '')}"
+                )
+        self.update_status.configure(text=i18n.Raw(text))
+        if hasattr(self, "update_restart"):
+            self.update_restart.configure(state="normal" if staged or getattr(self, "_pulled", False) else "disabled")
+            self.update_undo.configure(
+                state="normal" if updates.backups(self.ctx.settings.data_dir) and not staged else "disabled"
+            )
+
+    def check_updates(self) -> None:
+        up = self._updater()
+        self._say_update("Looking on GitHub…", "GitHub पर देख रहा है…")
+        self.update_notes.configure(text="")
+        self.update_install.configure(state="disabled")
+
+        def done(found) -> None:
+            from hth import i18n
+
+            self._update_found = found
+            if not found.newer:
+                self._say_update(
+                    f"Up to date: version {found.current} (GitHub has {found.version}).",
+                    f"नया कुछ नहीं: संस्करण {found.current} (GitHub पर {found.version})।",
+                )
+                return
+            if found.mode == "git":
+                self._say_update(
+                    f"Version {found.version} is available ({found.behind} new commits) - Install runs git pull.",
+                    f"संस्करण {found.version} आया है ({found.behind} नए commit) - 'अपडेट लगाएँ' git pull चलाएगा।",
+                )
+            else:
+                self._say_update(
+                    f"Version {found.version} is available: {len(found.changed)} files, {found.download_mb:.1f} MB"
+                    + (" (with new Python packages)" if found.requirements_changed else "")
+                    + ".",
+                    f"संस्करण {found.version} आया है: {len(found.changed)} फ़ाइलें, {found.download_mb:.1f} MB"
+                    + (" (नए Python पैकेज के साथ)" if found.requirements_changed else "")
+                    + "।",
+                )
+            notes = "\n".join(found.notes.splitlines()[:18])
+            self.update_notes.configure(text=i18n.Raw(notes))
+            self.update_install.configure(state="normal")
+
+        self.run_async(up.check, done, lambda exc: self._say_update(str(exc), str(exc)))
+
+    def install_update(self) -> None:
+        found = self._update_found
+        if found is None or not found.newer:
+            return
+        if not confirm(
+            self,
+            "Install update",
+            f"Download version {found.version} now?\n\nThe app changes only when it restarts; a copy of every "
+            "file it replaces is kept, so the update can be undone. Your data is not touched.",
+        ):
+            return
+        up = self._updater()
+        self.update_install.configure(state="disabled")
+        if found.mode == "git":
+            self._say_update("Running git pull…", "git pull चल रहा है…")
+
+            def pulled(_out) -> None:
+                self._pulled = True
+                self._say_update("Updated with git pull - restart to use it.", "git pull हो गया - फिर से शुरू करें।")
+                self.update_restart.configure(state="normal")
+
+            self.run_async(up.pull, pulled, lambda exc: self._say_update(str(exc), str(exc)))
+            return
+
+        def progress(k: int, n: int, rel: str) -> None:
+            self._update_progress = (k, n, rel)  # read by _poll_update_progress on the Tk thread
+
+        def done(_staging) -> None:
+            self._update_progress = None
+            self.ctx.audit.log(
+                AuditCode.UPDATE, f"update {found.current} -> {found.version} downloaded", self.ctx.username
+            )
+            self._show_update_status()
+            self.ctx.toast(f"Version {found.version} is ready - restart to finish", "success")
+
+        def failed(exc: Exception) -> None:
+            self._update_progress = None
+            self._say_update(str(exc), str(exc))
+
+        self._update_progress = (0, len(found.changed), "")
+        self.after(200, self._poll_update_progress)
+        self.run_async(lambda: up.stage(found, progress), done, failed)
+
+    def _poll_update_progress(self) -> None:
+        if not self._alive or self._update_progress is None:
+            return
+        k, n, rel = self._update_progress
+        self._say_update(f"Downloading {k}/{n}: {rel}", f"डाउनलोड {k}/{n}: {rel}")
+        self.after(200, self._poll_update_progress)
+
+    def restart_for_update(self) -> None:
+        from hth.services import updates
+
+        if not confirm(self, "Restart now", "Close and start the app again now?"):
+            return
+        updates.relaunch(wait_for_me=True)
+        self.ctx.app.destroy()
+
+    def undo_update(self) -> None:
+        from hth.services import updates
+
+        found = updates.backups(self.ctx.settings.data_dir)
+        if not found or not confirm(
+            self,
+            "Undo last update",
+            "Put back the files from before the last update?\nThe app changes when it restarts.",
+        ):
+            return
+        updates.stage_undo(self.ctx.settings.data_dir, found[0])
+        self.ctx.audit.log(AuditCode.UPDATE, f"update undo staged from {found[0].name}", self.ctx.username)
+        self._show_update_status()
+
+    def save_update_source(self) -> None:
+        try:
+            self.ctx.prefs.set_update_source(self.update_repo.get(), self.update_branch.get())
+        except ValueError as exc:
+            self.ctx.toast(str(exc), "error")
+            return
+        self._show_update_status()
+        self.ctx.toast("Saved", "success")
+
     # Assistant ---------------------------------------------------------------------------
     def _build_assistant(self, scroll) -> None:
         card = Card(scroll, "Assistant (सहायक)")
@@ -480,7 +697,89 @@ class SettingsView(BaseView):
             )
             self.speak_mode.set(_SPEAK[self.ctx.prefs.assistant_speak()])
             self.speak_mode.pack(side="left")
+            self._build_mic_row(body)
         self._show_assistant_status()
+
+    def _build_mic_row(self, body) -> None:
+        from hth.assistant import voice
+
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x", pady=(10, 0))
+        ctk.CTkLabel(row, text="Microphone", font=theme.font(12), anchor="w").pack(side="left", padx=(0, 10))
+        devices = voice.input_devices()
+        names = [d.name for d in devices if not d.loopback] + [d.name for d in devices if d.loopback]
+        saved = self.ctx.prefs.assistant_mic()
+        self.mic_menu = ctk.CTkOptionMenu(
+            row, values=["Automatic", *names], command=self._set_mic, font=theme.font(12), width=280
+        )
+        self.mic_menu.set(saved if saved in names else "Automatic")
+        self.mic_menu.pack(side="left")
+        secondary_button(row, "Test microphone", self.test_mic, width=150).pack(side="left", padx=8)
+        self.mic_result = ctk.CTkLabel(
+            body,
+            text="",
+            font=theme.font(12),
+            text_color=theme.color("muted"),
+            anchor="w",
+            justify="left",
+            wraplength=900,
+        )
+        self.mic_result.pack(fill="x", pady=(4, 0))
+        chosen = voice.choose_device(saved)
+        if chosen is not None:
+            self._mic_note(f"Listening with: {chosen.name}", f"इससे सुनता है: {chosen.name}")
+
+    def _mic_note(self, en: str, hi: str) -> None:
+        from hth import i18n
+
+        self.mic_result.configure(text=i18n.Raw(hi if i18n.is_hindi() else en))
+
+    def _set_mic(self, value: str) -> None:
+        from hth.assistant import voice
+
+        self.ctx.prefs.set_assistant_mic("" if value == "Automatic" else value)
+        chosen = voice.choose_device(self.ctx.prefs.assistant_mic())
+        if chosen is not None:
+            self._mic_note(f"Listening with: {chosen.name}", f"इससे सुनता है: {chosen.name}")
+
+    def test_mic(self) -> None:
+        """Record three seconds from the chosen microphone; show how loud it was and what was heard."""
+        from hth.assistant import voice
+
+        chosen = voice.choose_device(self.ctx.prefs.assistant_mic())
+        if chosen is None:
+            self._mic_note("No microphone found on this PC.", "इस कंप्यूटर में कोई माइक नहीं मिला।")
+            return
+        self._mic_note(
+            f"Speak now for 3 seconds (e.g. “Ramesh ka balance batao”) - {chosen.name}",
+            f"अब 3 सेकंड बोलिए (जैसे “रमेश का बैलेंस बताओ”) - {chosen.name}",
+        )
+
+        def work():
+            level, pcm, rate = voice.record_test(chosen.index)
+            model = voice.VoiceModel(voice.voice_dir(self.ctx.settings.data_dir))
+            heard = model.transcribe(pcm, None, rate).text if model.available() else None
+            return level, heard
+
+        def done(result) -> None:
+            level, heard = result
+            bars = "▮" * int(level * 10 + 0.5) + "▯" * (10 - int(level * 10 + 0.5))
+            if level < 0.01:
+                self._mic_note(
+                    f"{bars}  No sound from “{chosen.name}”. Choose another microphone above, or check that it is "
+                    "not muted (Windows: Settings → System → Sound → Input).",
+                    f"{bars}  “{chosen.name}” से कोई आवाज़ नहीं आई। ऊपर दूसरा माइक चुनें, या देखें कि माइक बंद तो नहीं "
+                    "(Windows: Settings → System → Sound → Input)।",
+                )
+            elif heard is None:
+                self._mic_note(f"{bars}  The microphone works.", f"{bars}  माइक ठीक काम कर रहा है।")
+            else:
+                self._mic_note(
+                    f"{bars}  The microphone works. Heard: “{heard or '…'}”",
+                    f"{bars}  माइक ठीक काम कर रहा है। सुना: “{heard or '…'}”",
+                )
+
+        self.run_async(work, done, lambda exc: self._mic_note(f"Microphone: {exc}", f"माइक: {exc}"))
 
     def _show_assistant_status(self) -> None:
         from hth import i18n
@@ -521,7 +820,13 @@ class SettingsView(BaseView):
         from hth.assistant import speech, voice
 
         folder = voice.find_model_dir(voice.voice_dir(self.ctx.settings.data_dir))
-        if folder is None:
+        if folder is None and voice.bundled_zip() is not None:
+            text = (
+                "आवाज़ से पूछना: मॉडल ऐप के साथ आता है - सहायक पहली बार खुलने पर अपने-आप लग जाएगा।"
+                if hi
+                else "Asking by voice: the model comes with the app and is set up the first time the Assistant opens."
+            )
+        elif folder is None:
             text = (
                 "आवाज़ से पूछना: मॉडल नहीं लगा - alphacephei.com/vosk/models से vosk-model-small-hi-0.22.zip "
                 "(42 MB) लेकर 'आवाज़ मॉडल लगाएँ' से लगाएँ।"

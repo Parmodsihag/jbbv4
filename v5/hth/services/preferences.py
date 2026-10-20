@@ -14,6 +14,12 @@ DEFAULTS = {
     "ui.text_scale": "1.0",  # 0.9 | 1.0 | 1.15 | 1.3
     "ui.language": "en",  # en | hi
     "assistant.speak": "voice",  # speak answers: voice (when the question was spoken) | always | never
+    "assistant.mic": "",  # the recording device's name; "" = automatic (never a loopback like Stereo Mix)
+    "update.repo": "Parmodsihag/jbbv4",  # where updates come from (GitHub owner/name)
+    "update.branch": "v5",
+    "update.folder": "v5",  # the app's folder inside the repository
+    "update.last_check": "",  # ISO time of the last automatic check
+    "update.result_seen": "",  # the last update result already shown
 }
 SPEAK_MODES = ("voice", "always", "never")
 LANGUAGES = ("en", "hi")
@@ -67,6 +73,28 @@ class Preferences:
         if mode not in SPEAK_MODES:
             raise ValueError("Speak answers must be voice, always or never.")
         self.settings.set("assistant.speak", mode)
+
+    def assistant_mic(self) -> str:
+        return self.settings.get("assistant.mic")
+
+    def set_assistant_mic(self, name: str) -> None:
+        self.settings.set("assistant.mic", name or "")
+
+    def update_source(self):
+        from hth.services.updates import Source
+
+        return Source(
+            self.settings.get("update.repo").strip() or "Parmodsihag/jbbv4",
+            self.settings.get("update.branch").strip() or "v5",
+            self.settings.get("update.folder").strip().strip("/"),
+        )
+
+    def set_update_source(self, repo: str, branch: str) -> None:
+        repo, branch = (repo or "").strip(), (branch or "").strip()
+        if repo.count("/") != 1 or not all(repo.split("/")) or not branch or " " in repo + branch:
+            raise ValueError("Repository must look like owner/name, and the branch must not be empty.")
+        self.settings.set("update.repo", repo)
+        self.settings.set("update.branch", branch)
 
     def language(self) -> str:
         v = self.settings.get("ui.language").lower()

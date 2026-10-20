@@ -6,16 +6,28 @@ import sys
 
 
 def main() -> int:
+    from hth.config import get_settings
+    from hth.services import updates
+
+    settings = get_settings()
+    updates.wait_for_previous()
+    if updates.pending(settings.data_dir) is not None:  # downloaded last time: put it in before anything loads
+        updates.apply_pending(settings.data_dir)
+        updates.relaunch(wait_for_me=False)  # a fresh start loads the new files (or the old ones, if undone)
+        return 0
+    return _run(settings)
+
+
+def _run(settings) -> int:
     import logging
 
-    from hth.config import copy_previous_version, get_settings, previous_version_db
+    from hth.config import copy_previous_version, previous_version_db
     from hth.db.connection import Database
     from hth.db.schema import initialize
     from hth.logging_setup import setup_logging
     from hth.services.auth import AuthService
     from hth.services.settings import SettingsService
 
-    settings = get_settings()
     setup_logging(settings.log_dir)
     previous = previous_version_db(settings)
     if previous is not None:
