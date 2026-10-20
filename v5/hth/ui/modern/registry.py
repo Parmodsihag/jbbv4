@@ -38,6 +38,7 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
     from hth.ui.modern.areas.counter import CounterView
     from hth.ui.modern.areas.khata import KhataView
     from hth.ui.modern.areas.money import MoneyView
+    from hth.ui.modern.areas.reports import ReportsArea
     from hth.ui.modern.areas.stock import StockView
     from hth.ui.modern.areas.today import TodayView
     from hth.ui.views.assistant import AssistantView
@@ -79,7 +80,12 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
             factory=StockView,  # rebuilt (v5.5): items; the crop module's screen is hosted inside
         ),
         "money": Area("money", "Money", (), factory=MoneyView),  # rebuilt (v5.5); its tabs come from modules
-        "reports": Area("reports", "Reports", (Tab("reports", "Reports", ReportsView, Permission.VIEW_REPORTS, "r"),)),
+        "reports": Area(
+            "reports",
+            "Reports",
+            (Tab("reports", "Reports", ReportsView, Permission.VIEW_REPORTS, "r"),),
+            factory=ReportsArea,  # rebuilt (v5.5): the catalogue; reports still run in the classic runner
+        ),
     }
     extra: list[Area] = []
     for spec in sorted(modules, key=lambda s: (getattr(s, "order", 100), s.label)):

@@ -52,10 +52,14 @@ class FinanceView(BaseView):
             self.setup = SetupPanel(self.tabs.tab("Setup"), self)
             self.setup.pack(fill="both", expand=True)
 
-    def on_show(self, **kwargs) -> None:
+    def on_show(self, report: str | None = None, **kwargs) -> None:
         for p in (self.book, self.setup, self.reports):
             if p is not None:
                 p.reload()
+        if report in FIN_REPORTS and self.reports is not None:  # opened from a report catalogue
+            self.tabs.set("Reports")
+            self.reports.which.set(report)
+            self.reports.run()
 
     def on_theme_change(self) -> None:
         for p in (self.book, self.setup, self.reports):

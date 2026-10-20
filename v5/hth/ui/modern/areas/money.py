@@ -100,6 +100,9 @@ class MoneyView(BaseView):
         return self.hosted.get(name) if name else None
 
     def on_show(self, tab: str | None = None, **kwargs) -> None:
+        if tab == "finance" and kwargs.get("report") and REPORTS in self.pages:
+            self.show_page(REPORTS, **kwargs)  # a finance report, from the Reports catalogue
+            return
         name = self._page_for(tab) if tab else None
         if name is None:
             name = self._page_for(self.current) if self.current else next(iter(self.pages), None)

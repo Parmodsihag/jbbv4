@@ -36,4 +36,5 @@ MODULE = ModuleSpec(
     order=30,
     area="money",
     tab="Cash book",
+    reports=("Cash flow", "Profit & loss", "Expenses by head", "Monthly expenses", "Account balances"),
 )
