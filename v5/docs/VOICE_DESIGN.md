@@ -222,5 +222,9 @@ The period-parser bug (§1) is fixed at the start of V1, since it affects typed 
 
   Synthetic speech is cleaner than a person in a shop; the recorded test set (§7) is the real
   measure.
+* Since 5.4.0 the model zip ships with the app (`bundled/voice/`) and is unpacked on first use
+  (`voice.ensure_model`); the microphone is chosen by `voice.choose_device` (never a loopback
+  such as "Stereo Mix", which can be Windows' default recording device - found on the first
+  real test, where every question came back as "nothing heard").
 * Not done in V1: System 2 voice (Whisper), WhatsApp voice notes (the `Listener` already takes a
   recorded source), fine-tuning on his voice.

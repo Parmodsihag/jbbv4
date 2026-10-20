@@ -119,7 +119,7 @@ class _FakeModel:
     def __init__(self, hearing: dict[bytes, str] | None = None):
         self.hearing = hearing or {}
 
-    def transcribe(self, pcm, grammar=None):
+    def transcribe(self, pcm, grammar=None, rate=voice.RATE):
         return voice.Heard(self.hearing.get(pcm, ""), [], grammar is not None)
 
 
@@ -170,12 +170,12 @@ def test_install_voice_zip_is_confined_to_the_voice_folder(tmp_path):
 
 # The microphone loop, with a recorded source and a fake recogniser ---------------------------
 class _FakeRecognizer:
-    def __init__(self, words):
-        self.words, self.n = words, 0
+    def __init__(self, words, endpoint_after=None):
+        self.words, self.n, self.endpoint_after = words, 0, endpoint_after
 
     def AcceptWaveform(self, chunk):  # noqa: N802 - Vosk's API
         self.n += 1
-        return False
+        return self.endpoint_after is not None and self.n >= self.endpoint_after
 
     def PartialResult(self):  # noqa: N802
         return json.dumps({"partial": " ".join(self.words[: self.n])})
@@ -187,19 +187,54 @@ class _FakeRecognizer:
         return json.dumps({"result": [{"word": w, "conf": 0.9} for w in self.words], "text": " ".join(self.words)})
 
 
-def test_listener_reports_partials_then_the_final_hearing():
+def _listen(recognizer, chunks, **kw):
     class Model:
-        def recognizer(self, grammar):
-            return _FakeRecognizer(["रमेश", "का", "बैलेंस"])
+        def recognizer(self, grammar, rate=voice.RATE):
+            return recognizer
 
     events = []
-    listener = voice.Listener(Model(), "[]", events.append, source=[b"\1\0" * 1600] * 3)
+    listener = voice.Listener(Model(), "[]", events.append, source=chunks, **kw)
     listener.start()
     listener._thread.join(5)
+    return events
+
+
+def _tone(amplitude: int, chunks: int) -> list[bytes]:
+    return [struct.pack("<h", amplitude) * 1600] * chunks
+
+
+def test_listener_reports_partials_then_the_final_hearing():
+    events = _listen(_FakeRecognizer(["रमेश", "का", "बैलेंस"]), _tone(1, 3))
     kinds = [k for k, _v in events]
     assert "level" in kinds and "partial" in kinds and kinds[-1] == "final"
-    heard, pcm = events[-1][1]
-    assert heard.text == "रमेश का बैलेंस" and heard.restricted and len(pcm) >= 3 * 3200
+    heard, pcm, rate = events[-1][1]
+    assert heard.text == "रमेश का बैलेंस" and heard.restricted and len(pcm) >= 3 * 3200 and rate == voice.RATE
+
+
+def test_speech_without_shop_words_still_ends_with_its_audio():
+    # quiet room for half a second, then a loud voice the restricted vocabulary has no words for
+    events = _listen(_FakeRecognizer([], endpoint_after=12), _tone(20, 5) + _tone(3000, 10))
+    kind, (heard, pcm, _rate) = events[-1]
+    assert kind == "final" and heard.text == "" and len(pcm) > 0  # the screen then tries the open vocabulary
+
+
+def test_a_silent_device_is_reported_with_its_level():
+    events = _listen(_FakeRecognizer([]), _tone(0, 3), quiet_seconds=0.0, device_name="Stereo Mix")
+    kind, info = events[-1]
+    assert kind == "timeout" and info == {"level": 0.0, "device": "Stereo Mix"}
+
+
+def test_the_microphone_is_never_a_loopback_like_stereo_mix():
+    devices = [
+        voice.InputDevice(1, "Stereo Mix (Realtek(R) Audio)", True),
+        voice.InputDevice(2, "Microphone (Realtek(R) Audio)", False),
+        voice.InputDevice(3, "USB Headset", False),
+    ]
+    assert voice.choose_device("", devices, default=1).index == 2  # Windows' default is Stereo Mix
+    assert voice.choose_device("", devices, default=3).index == 3  # a real default is kept
+    assert voice.choose_device("USB Headset", devices, default=2).index == 3  # the choice in Settings wins
+    assert voice.choose_device("gone", devices, default=1).index == 2
+    assert voice.choose_device("", [], default=None) is None
 
 
 # Spoken answers -------------------------------------------------------------------------------
@@ -289,6 +324,15 @@ def test_a_spoken_reply_to_an_ask_back_is_used_as_heard(db, shop, classifier):
     assert reply.kind == "ask"
     used, reply = bot.ask_heard("रोहतक वाले", session, lambda: pytest.fail("not needed"))
     assert reply.kind == "answer" and reply.args["customer"] == shop["r1"].id
+
+
+def test_microphone_preference(db):
+    from hth.services.preferences import Preferences
+
+    prefs = Preferences(db)
+    assert prefs.assistant_mic() == ""
+    prefs.set_assistant_mic("Microphone (Realtek(R) Audio)")
+    assert prefs.assistant_mic() == "Microphone (Realtek(R) Audio)"
 
 
 def test_speak_preference(db):

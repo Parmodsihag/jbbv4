@@ -210,6 +210,7 @@ class App(ctk.CTk):
         self.navigate("dashboard")
         self.toast(f"Welcome, {user.full_name or user.username}", "success")
         self.after(600, self._upgrade_notice)
+        self.after(1500, self._update_notices)
 
     def _upgrade_notice(self) -> None:
         """Once, after the first v5 start copied v4's data: say where it came from."""
@@ -229,6 +230,58 @@ class App(ctk.CTk):
             "The v4 files were only read, never changed - v4 still opens its data as before. "
             "Entries made in v5 are not visible in v4.",
         )
+
+    def _update_notices(self) -> None:
+        """After sign-in (admins): say how the last update went, and once a day look for a new one."""
+        import datetime as _dt
+        import threading
+
+        from hth.services import updates
+        from hth.services.permissions import Permission
+
+        if not self.is_signed_in or not self.ctx.can(Permission.MANAGE_SETTINGS):
+            return
+        import os
+
+        prefs = self.ctx.prefs.settings
+        last = updates.last_result(self.ctx.settings.data_dir)
+        if last and last.get("when") and prefs.get("update.result_seen") != last["when"]:
+            prefs.set("update.result_seen", last["when"])
+            if last.get("ok"):
+                self.toast(f"Updated to version {__version__}", "success")
+            else:
+                self.toast(
+                    f"The update could not be put in - the old version was kept: {last.get('error', '')}", "error"
+                )
+        now = _dt.datetime.now()
+        try:
+            due = now - _dt.datetime.fromisoformat(prefs.get("update.last_check")) > _dt.timedelta(hours=20)
+        except ValueError:
+            due = True
+        if not due or updates.pending(self.ctx.settings.data_dir) or os.environ.get("HTH_NO_UPDATE_CHECK"):
+            return
+        prefs.set("update.last_check", now.isoformat(timespec="seconds"))
+        updater = updates.Updater(self.ctx.settings.data_dir, self.ctx.prefs.update_source())
+        if updater.mode != "copy":
+            return
+        found: list = []
+
+        def work() -> None:
+            try:
+                found.append(updater.check())
+            except Exception:  # noqa: BLE001 - offline: try again tomorrow
+                log.info("update check failed", exc_info=True)
+
+        thread = threading.Thread(target=work, name="hth-update-check", daemon=True)
+        thread.start()
+
+        def poll() -> None:
+            if thread.is_alive():
+                self.after(1000, poll)
+            elif found and found[0].newer and self.is_signed_in:
+                self.toast(f"Version {found[0].version} is available - Settings → Updates", "info")
+
+        self.after(1000, poll)
 
     def logout(self) -> None:
         self.ctx.audit.log("08", f"logout {self.ctx.username}", self.ctx.username)

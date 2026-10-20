@@ -6,9 +6,12 @@ pypdf>=4
 numpy>=1.24
 # optional - the assistant's trained language model (System 2):
 # llama-cpp-python>=0.3
-# optional - asking by voice and spoken answers (run `pip install -U pip setuptools` first):
-# vosk>=0.3.45
-# sounddevice>=0.4
-# pywin32>=304
+# asking by voice and spoken answers (the Hindi voice model ships in bundled/voice/);
+# run `python -m pip install --upgrade pip` first - an old pip cannot build vosk's `srt` helper
+vosk>=0.3.45
+sounddevice>=0.4
+pywin32>=304; sys_platform == "win32"
+# keep setuptools below 81: the DOCX bills (docxcompose) still need its pkg_resources
+setuptools<81
 # optional, Windows/macOS with Microsoft Word - DOCX -> PDF:
 # docx2pdf>=0.1.8

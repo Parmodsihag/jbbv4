@@ -79,6 +79,22 @@ again, close v5, delete or rename `C:\JBB\v5\hth.db`, and start v5. With `HTH_DA
 set nothing is copied. Before any schema upgrade of an existing database v5 also writes
 `backups/hth_pre_migration_v<N>_<time>.db`.
 
+### Updating the app
+
+**Settings → Updates → Check for updates** looks at the app on GitHub
+(`github.com/Parmodsihag/jbbv4`, branch `v5`, folder `v5` - both changeable there) and shows the
+new version and what is new. **Install update** downloads only the files that changed, checks
+each against GitHub's hash, and installs any new Python packages; **Restart now** finishes it.
+At that start, before the app loads, every file being replaced is saved to
+`<data>/updates/before-<version>….zip`, the new files are put in, and if anything goes wrong the
+old ones come back. **Undo last update** puts the previous files back the same way. The data
+folder is never changed by an update. Admins see a message after signing in when a new version
+is on GitHub (checked at most once a day).
+
+To publish an update: raise `__version__` in `hth/__init__.py`, add a `## <version>` section to
+`CHANGELOG.md`, commit and push to the `v5` branch. A git checkout (like the developer's PC)
+updates itself with `git pull --ff-only` instead; a packaged build cannot update itself.
+
 ---
 
 ## Roles and permissions
@@ -237,15 +253,19 @@ How it works (details in `docs/AI_CHAT_DESIGN.md`):
   the model is worth installing. In the app the model runs in its own process (if this PC
   cannot run it, only the model switches off) and is trusted only when it agrees with one of
   System 1's three best guesses.
-* **Voice** (optional, details in `docs/VOICE_DESIGN.md`): press **🎤** or **F2** and speak -
+* **Voice** (details in `docs/VOICE_DESIGN.md`): press **🎤** or **F2** and speak -
   Hinglish, Hindi or English. The words appear in the box as they are heard; the question goes
   1.2 s after you stop (tap the text to correct it). The answer is spoken back in Hindi.
   Setup on the shop PC:
-  1. `pip install -U pip setuptools` then `pip install vosk sounddevice pywin32`;
-  2. download `vosk-model-small-hi-0.22.zip` (42 MB) from alphacephei.com/vosk/models and
-     install it with **Settings → Assistant → Install voice model…**;
+  1. `python -m pip install --upgrade pip` then `pip install -r requirements.txt` (a new pip
+     builds vosk's `srt` helper by itself; setuptools stays below 81 - the bills need it);
+  2. nothing to download: the Hindi voice model (`bundled/voice/vosk-model-small-hi-0.22.zip`,
+     42 MB) ships with the app and is unpacked the first time the Assistant opens. Another
+     Vosk model can still be installed with **Settings → Assistant → Install voice model…**;
   3. for spoken answers, Windows needs its Hindi voice: Settings → Time & language → Speech →
      Add voices → Hindi (often already there). **Speak answers**: when I speak / always / never.
+  4. **Settings → Assistant → Microphone**: "Automatic" picks the real microphone (never "Stereo
+     Mix", which records the speakers); **Test microphone** shows the loudness and what it heard.
 
   The recogniser is limited to the shop's words (questions, numbers, the Hindi copies of
   names and villages) - fast and accurate on a Celeron; when that hearing makes no sense the
@@ -423,7 +443,7 @@ Packaging for the shop PC (single folder, no Python needed):
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconfirm --windowed --name HighTableHoldings run.py
+pyinstaller --noconfirm --windowed --name HighTableHoldings --add-data "bundled;bundled" --collect-all vosk run.py
 ```
 
 ## Bills module

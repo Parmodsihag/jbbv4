@@ -1,5 +1,45 @@
 # Changelog
 
+## 5.4.0 — 2026-10-21
+
+### Updates from inside the app
+- **Settings → Updates → Check for updates**: looks at the app's GitHub branch
+  (github.com/Parmodsihag/jbbv4, branch `v5`, folder `v5` - changeable there), says which
+  version is there and what is new (from the CHANGELOG), and **Install update** downloads it.
+  Admins also get a message after signing in when a new version appears (checked once a day).
+- Only the files that changed are downloaded, each checked against GitHub's own hash; a
+  broken download changes nothing. New Python packages in `requirements.txt` are installed
+  while downloading. The app itself changes only at the next start (**Restart now**): before
+  it loads, every file about to be replaced is saved to `<data>/updates/before-….zip`, the new
+  files go in, and if anything fails the old files are put back. **Undo last update** restores
+  that backup the same way. The data folder is never touched (a new version's database
+  changes are made by its migrations, which back the database up first). Every step is in
+  the audit log (code 14) and `<data>/logs/updates.log`.
+- A developer copy (a git checkout) is updated with `git pull --ff-only`, and only when it has
+  no uncommitted changes. A packaged build cannot update itself.
+
+### The voice model ships with the app
+- `bundled/voice/vosk-model-small-hi-0.22.zip` (42 MB, Apache 2.0) is part of the app; it is
+  unpacked into `<data>/voice` the first time the Assistant opens - nothing to download or
+  install. An update that brings a different model zip installs it on the next start; a model
+  installed by hand in Settings is kept.
+- `vosk`, `sounddevice` and `pywin32` are now regular requirements; `setuptools` stays below 81
+  (the DOCX bills need its `pkg_resources`).
+
+## 5.3.1 — 2026-10-21
+
+### Fixed
+- Asking by voice always said "कुछ सुनाई नहीं दिया" on PCs where Windows' default recording
+  device is **Stereo Mix** (it records what the speakers play, not the microphone). The
+  assistant now picks the real microphone itself and never a loopback device; the choice can
+  be changed in **Settings → Assistant → Microphone**, with **Test microphone** (records three
+  seconds, shows how loud it was and what was heard).
+- Speech is noticed by loudness as well as by words: a question in words outside the shop's
+  vocabulary is heard again with the full dictionary instead of being dropped as silence.
+- Clear messages: "no sound is coming from <microphone>" (wrong device or muted) versus "I
+  heard a voice but could not make out the words". A microphone that refuses 16 kHz is
+  recorded at its own rate.
+
 ## 5.3.0 — 2026-10-21
 
 ### Voice - ask by speaking, hear the answer
