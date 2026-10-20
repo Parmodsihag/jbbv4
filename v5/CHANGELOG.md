@@ -1,5 +1,38 @@
 # Changelog
 
+## 5.3.0 — 2026-10-21
+
+### Voice - ask by speaking, hear the answer
+- **🎤 on the Assistant screen (or F2)**: speak the question - mostly Hinglish, *"Ramesh ka
+  last month ka balance batao"* - the words appear in the box as they are heard and the
+  question goes by itself 1.2 s after you stop (tap the text to correct it first). Answers to
+  spoken questions are **spoken back in Hindi** with Windows' own Hindi voice (Hemant /
+  Kalpana): amounts in whole rupees in Hindi words, dates as "दस अक्टूबर", the ask-back
+  choices as "रमेश सैनी, भिवानी वाले या रमेश कुमार, रोहतक वाले" - answer "रोहतक वाले" by voice.
+- **System 1 voice**: Vosk's small Hindi model (`vosk-model-small-hi-0.22`, 42 MB, offline, no
+  AVX needed), limited to the shop's own words - the question words of the corpus, numbers,
+  and the Hindi copies of every customer, village and item name. When that hearing does not
+  make sense, the same audio is heard again with the model's full 179,000-word dictionary.
+  Names the dictionary lacks get a *voice spelling* once (spoken by the Windows voice, heard
+  by the model). Install it from **Settings → Assistant → Install voice model…** (the zip from
+  alphacephei.com/vosk/models); needs `pip install vosk sounddevice pywin32`.
+- Measured on 150 held-out spoken questions (Windows voices, made-up names): answered right
+  **99.3 %** clean and **95.3 %** with shop-like noise (15 dB), ~0.1-0.2 s per question on a
+  laptop; the open vocabulary alone gets 96.7 % / 84.0 % at ~1 s. Real recordings will be
+  lower - `tools/assistant/eval_voice.py --recordings <folder>` measures them on the PC.
+- **Spoken Hinglish understood**: a fourth corpus style (`sp`) - the Hinglish templates as a
+  Hindi recogniser writes them ("लास्ट मंथ का बैलेंस", English words in Devanagari, numbers as
+  words) - from a hand-made table of 300 words (`hth/assistant/spoken.py`). System 1 on unseen
+  phrasings: 96.0 % overall (spoken 96.5 %, Hindi 99.2 %, Hinglish 95.9 %, English 94.5 %).
+- Settings → Assistant → **Speak answers**: when I speak (default) / always / never.
+
+### Fixed
+- Periods in Devanagari loanwords were not read: "लास्ट मंथ", "इस मंथ", "इस वीक", "टुडे",
+  "लास्ट ईयर" fell back to a default period. Number words now count in periods too:
+  "पिछले तीस दिन", "pichle do din", "लास्ट थर्टी डेज़", "पंद्रह तारीख".
+- "sabse bade bakayedar **bata do**" showed the top 2: "do" (tell me) was read as the number
+  2. It is a number only before what it counts ("do bakayedar", "do hazaar").
+
 ## 5.2.0 — 2026-10-20
 
 ### Assistant (सहायक) - ask about the shop in plain words

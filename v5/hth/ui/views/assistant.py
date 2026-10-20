@@ -2,15 +2,21 @@
 
 The screen only draws; :mod:`hth.assistant.core` does the understanding and answering (the
 same object a WhatsApp / Telegram bot or a voice loop will use later).  Answers are read-only.
+
+Voice: 🎤 (or F2) listens with :mod:`hth.assistant.voice`; the words appear in the box as they
+are heard and the question goes 1.2 s after he stops speaking, unless he taps the box to
+correct it.  Answers to spoken questions are spoken back (:mod:`hth.assistant.speech`).
 """
 
 from __future__ import annotations
 
 import logging
+import queue
 
 import customtkinter as ctk
 
 from hth import i18n
+from hth.assistant import speech, voice
 from hth.assistant.core import Assistant, Reply, Session
 from hth.assistant.system2 import LocalModel, models_dir
 from hth.i18n import Raw
@@ -23,6 +29,7 @@ log = logging.getLogger(__name__)
 
 MAX_BUBBLES = 60
 MAX_ROWS = 12
+AUTO_SEND_MS = 1200
 
 
 def _t(en: str, hi: str) -> Raw:
@@ -45,6 +52,15 @@ class AssistantView(BaseView):
         self._bubbles: list[ctk.CTkFrame] = []
         self._typing: ctk.CTkFrame | None = None
         self._row = 0
+        # voice
+        self.voice: voice.VoiceModel | None = None
+        self.speaker = speech.Speaker()
+        self._grammar: str | None = None
+        self._listener: voice.Listener | None = None
+        self._events: queue.Queue = queue.Queue()
+        self._heard: tuple[voice.Heard, bytes] | None = None
+        self._auto_send: str | None = None
+        self._spoken = False
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -65,6 +81,9 @@ class AssistantView(BaseView):
         )
         self.entry.grid(row=1, column=0, sticky="ew")
         self.entry.bind("<Return>", lambda _e: self.send())
+        self.entry.bind("<F2>", lambda _e: self._voice())
+        self.entry.bind("<Key>", self._typed, add="+")
+        self.entry.bind("<Button-1>", self._typed, add="+")
         self.send_button = primary_button(
             bottom, _t("Ask", "पूछो"), self.send, height=48, width=110, font=theme.font(16, "bold")
         )
@@ -90,6 +109,7 @@ class AssistantView(BaseView):
 
     def _start(self) -> None:
         data_dir = self.ctx.settings.data_dir
+        self.voice = voice.VoiceModel(voice.voice_dir(data_dir))
         self.system2 = LocalModel(models_dir(data_dir))
         self.assistant = Assistant(self.ctx.db, self.ctx.user, model_dir=data_dir / "assistant", system2=self.system2)
         self._set_status(
@@ -108,6 +128,137 @@ class AssistantView(BaseView):
             text, shown = self._queued
             self._queued = None
             self._ask_now(text)
+        if self.voice is not None and self.voice.available():
+            self.run_async(self._prepare_voice, self._voice_prepared, lambda exc: log.warning("voice: %s", exc))
+
+    # Voice -------------------------------------------------------------------------------------
+    def _prepare_voice(self) -> tuple[str, dict[str, str]]:
+        """Load the voice model and build the shop's vocabulary (background thread)."""
+        rows = self.ctx.db.fetchall("SELECT name_hi, details_hi FROM customers")
+        names = [r["name_hi"] for r in rows] + [r["details_hi"] for r in rows]
+        names += [r["name_hi"] for r in self.ctx.db.fetchall("SELECT name_hi FROM items")]
+        shop = voice.shop_words(names)
+        known = self.voice.words
+        self.voice.model()
+        cache = self.ctx.settings.data_dir / "assistant" / "voice_spellings.json"
+        spellings = voice.voice_spellings(
+            (w for w in shop if known and w not in known), self.voice, speech.synthesize, cache
+        )
+        heard_forms = voice.shop_words(spellings.values())
+        return voice.grammar(voice.question_words() | shop | heard_forms, known), spellings
+
+    def _voice_prepared(self, result) -> None:
+        self._grammar, spellings = result
+        if self.assistant is not None and spellings:
+            self.assistant.set_voice_spellings(spellings)
+        self._show_status()
+
+    def _voice(self) -> None:
+        if self._listener is not None and self._listener.running:
+            self._listener.stop()
+            return
+        if self.voice is None or not self.voice.available():
+            self.ctx.app.toast(
+                _t(
+                    "Install the voice model first: Settings → Assistant → Install voice model…",
+                    "पहले आवाज़ मॉडल लगाएँ: सेटिंग्स → सहायक → आवाज़ मॉडल लगाएँ…",
+                ),
+                "warning",
+            )
+            return
+        if not self._ready or self._busy:
+            return
+        self.speaker.stop()
+        self._cancel_auto_send()
+        self._heard = None
+        self.entry.delete(0, "end") if self.entry.get() else None
+        self._events = queue.Queue()
+        self._listener = voice.Listener(self.voice, self._grammar, self._events.put)
+        self._listener.start()
+        self.mic_button.configure(text=Raw("■"), fg_color=theme.color("danger"), text_color="#FFFFFF")
+        self._set_status(_t("Listening… speak now", "सुन रहा हूँ… बोलिए"))
+        self.after(50, self._poll_voice)
+
+    def _poll_voice(self) -> None:
+        if not self._alive:
+            return
+        done = False
+        try:
+            while True:
+                kind, value = self._events.get_nowait()
+                if kind == "level":
+                    bars = int(value * 8 + 0.5)
+                    self._set_status(_t("Listening… ", "सुन रहा हूँ… ") + "▮" * bars + "▯" * (8 - bars))
+                elif kind == "partial":
+                    self._show_heard(value)
+                elif kind == "final":
+                    heard, pcm = value
+                    self._heard = (heard, pcm)
+                    self._show_heard(heard.text)
+                    self._set_status(_t("Sending… tap the text to correct it", "भेज रहा हूँ… बदलना हो तो लिखे हुए पर दबाएँ"))
+                    self._auto_send = self.after(AUTO_SEND_MS, self._send_heard)
+                    done = True
+                elif kind == "timeout":
+                    self._set_status(
+                        _t("I did not hear anything - tap 🎤 and speak.", "कुछ सुनाई नहीं दिया - 🎤 दबाकर बोलिए।")
+                    )
+                    done = True
+                elif kind == "error":
+                    self.ctx.app.toast(_t(f"Microphone: {value}", f"माइक: {value}"), "error")
+                    self._show_status()
+                    done = True
+        except queue.Empty:
+            pass
+        if done or self._listener is None or not self._listener.running and self._events.empty():
+            self.mic_button.configure(text=Raw("🎤"), fg_color=theme.color("surface2"), text_color=theme.color("text"))
+            return
+        self.after(50, self._poll_voice)
+
+    def _show_heard(self, text: str) -> None:
+        self.entry.delete(0, "end")
+        self.entry.insert(0, text)
+
+    def _typed(self, _event=None) -> None:
+        """He touched the box while a spoken question was about to go: let him correct it."""
+        if self._auto_send is not None:
+            self._cancel_auto_send()
+            self._heard = None
+            self._set_status(_t("Correct the text, then press Ask.", "सुधारकर 'पूछो' दबाएँ।"))
+
+    def _cancel_auto_send(self) -> None:
+        if self._auto_send is not None:
+            self.after_cancel(self._auto_send)
+            self._auto_send = None
+
+    def _send_heard(self) -> None:
+        self._auto_send = None
+        if self._heard is None or self._busy:
+            return
+        heard, pcm = self._heard
+        self._heard = None
+        self.entry.delete(0, "end")
+        self._spoken = True
+        label = self._user_bubble("🎤 " + heard.text)
+        self._busy = True
+        self.send_button.configure(state="disabled")
+        self._typing = self._bubble("bot")
+        ctk.CTkLabel(self._typing, text=Raw("…"), font=theme.font(18, "bold"), text_color=theme.color("muted")).pack(
+            padx=16, pady=6
+        )
+        self._scroll_down()
+
+        def work():
+            return self.assistant.ask_heard(
+                heard.text, self.session, alternative=lambda: self.voice.transcribe(pcm).text
+            )
+
+        def done(result):
+            used, reply = result
+            if used != heard.text:  # the open-vocabulary hearing made more sense
+                label.configure(text=Raw("🎤 " + used))
+            self._answered(reply)
+
+        self.run_async(work, done, self._ask_failed)
 
     def _on_start_failed(self, exc: Exception) -> None:
         self._set_status(_t(f"The assistant could not start: {exc}", f"सहायक शुरू नहीं हो पाया: {exc}"))
@@ -116,6 +267,8 @@ class AssistantView(BaseView):
         parts = [_t("Ready", "तैयार")]
         if self.system2 is not None and self.system2.available():
             parts.append(_t("language model on", "भाषा मॉडल चालू"))
+        if self.voice is not None and self.voice.available():
+            parts.append(_t("🎤 or F2 to speak", "बोलने के लिए 🎤 या F2"))
         parts.append(_t("read-only: it only looks things up", "केवल देखता है, कुछ बदलता नहीं"))
         self._set_status(" · ".join(parts))
 
@@ -147,10 +300,15 @@ class AssistantView(BaseView):
 
     # Asking ----------------------------------------------------------------------------------
     def send(self) -> None:
+        if self._heard is not None:  # Ask pressed while a spoken question waits to go
+            self._cancel_auto_send()
+            self._send_heard()
+            return
         text = self.entry.get().strip()
         if not text:
             return
         self.entry.delete(0, "end")
+        self._spoken = False
         self.ask(text)
 
     def ask(self, text: str, shown: str | None = None) -> None:
@@ -178,6 +336,17 @@ class AssistantView(BaseView):
         self.send_button.configure(state="normal")
         self._reply_bubble(reply)
         self.entry.focus_set()
+        if self._auto_send is None and not (self._listener is not None and self._listener.running):
+            self._show_status()
+        mode = self.ctx.prefs.assistant_speak()
+        if mode == "always" or (mode == "voice" and self._spoken):
+            self.speaker.say(speech.summary(reply), reply.lang)
+
+    def destroy(self) -> None:
+        if self._listener is not None:
+            self._listener.stop()
+        self.speaker.close()
+        super().destroy()
 
     def _ask_failed(self, exc: Exception) -> None:
         self._drop_typing()
@@ -193,11 +362,6 @@ class AssistantView(BaseView):
                 self._bubbles.remove(outer)
             outer.destroy()
             self._typing = None
-
-    def _voice(self) -> None:
-        self.ctx.app.toast(
-            _t("Speaking to the assistant is coming in a later version.", "बोलकर पूछना अगले संस्करण में आएगा।")
-        )
 
     # Drawing -----------------------------------------------------------------------------------
     def _wrap(self) -> int:
@@ -229,10 +393,15 @@ class AssistantView(BaseView):
         label.pack(fill="x", padx=14, pady=pack.get("pady", (2, 2)))
         return label
 
-    def _user_bubble(self, text: str) -> None:
+    def _user_bubble(self, text: str) -> ctk.CTkLabel:
         bubble = self._bubble("user")
-        self._label(bubble, text, 16, color="accent_text", pady=(8, 8))
+        label = self._label(bubble, text, 16, color="accent_text", pady=(8, 8))
         self._scroll_down()
+        return label
+
+    def _pick(self, option) -> None:
+        self.speaker.stop()
+        self.ask(option.reply, shown=option.label)
 
     def _reply_bubble(self, reply: Reply) -> None:
         bubble = self._bubble("bot")
@@ -256,7 +425,7 @@ class AssistantView(BaseView):
                     text_color=theme.color("text"),
                     border_width=1,
                     border_color=theme.color("surface3"),
-                    command=lambda o=opt: self.ask(o.reply, shown=o.label),
+                    command=lambda o=opt: self._pick(o),
                 ).pack(fill="x", pady=3)
         if reply.actions:
             row = ctk.CTkFrame(bubble, fg_color="transparent")

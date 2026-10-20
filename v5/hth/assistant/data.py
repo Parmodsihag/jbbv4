@@ -1,11 +1,13 @@
 """Synthetic training data for the assistant - one source for System 1 and System 2.
 
-**Self-contained on purpose** (standard library only, no ``hth`` imports): the Kaggle
-training cell embeds this file verbatim, so the model is trained on exactly the
+**Self-contained on purpose** (standard library only; of ``hth`` only ``spoken.py``): the
+Kaggle training cell embeds these files verbatim, so the model is trained on exactly the
 phrasings the app's own System 1 learns from.
 
 Each intent has templates in three styles - English (``en``), Hindi in Devanagari
-(``hi``) and Hinglish / Roman Hindi (``hl``).  Placeholders:
+(``hi``) and Hinglish / Roman Hindi (``hl``) - and a fourth, derived one: ``sp``, the
+Hinglish templates as a Hindi speech recogniser writes them ("लास्ट मंथ का बैलेंस"), for
+spoken questions.  Placeholders:
 
 * ``{C}`` a customer, ``{I}`` an item - always replaced by ``<C1>`` / ``<I1>`` (the app's
   entity linker substitutes real names the same way before any model sees the text);
@@ -22,7 +24,9 @@ import random
 import re
 from dataclasses import dataclass, field
 
-CORPUS_VERSION = "2026-10-20.5"
+from hth.assistant.spoken import to_spoken
+
+CORPUS_VERSION = "2026-10-21.1"
 _PLACEHOLDER = re.compile(r"<[A-Za-z]\d>")
 
 # --- slot fillers: (style -> phrases) and the canonical value they mean ----------------
@@ -998,13 +1002,18 @@ def _fill(template: str, style: str, rng: random.Random, intent: str = "") -> tu
     return " ".join(text.split()), args
 
 
+SPOKEN_FROM = "hl"  # the spoken style is the Hinglish templates, as heard
+
+
 def templates() -> list[tuple[str, str, str, str]]:
-    """(template_id, intent, style, template)."""
+    """(template_id, intent, style, template); ``sp`` templates are the ``hl`` ones."""
     out = []
     for intent, (_slots, by_style) in INTENTS.items():
         for style, items in by_style.items():
             for k, t in enumerate(items):
                 out.append((f"{intent}/{style}/{k}", intent, style, t))
+                if style == SPOKEN_FROM:
+                    out.append((f"{intent}/sp/{k}", intent, "sp", t))
     return out
 
 
@@ -1014,14 +1023,17 @@ def generate(per_template: int = 30, seed: int = 7, noise: float = 0.25) -> list
     for tid, intent, style, template in templates():
         seen = set()
         for _ in range(per_template):
-            text, args = _fill(template, style, rng, intent)
+            words = SPOKEN_FROM if style == "sp" else style
+            text, args = _fill(template, words, rng, intent)
             label = intent
             if intent == "period_sales" and args.get("period") in ("today", "yesterday"):
                 label, args = "day_summary", {"day": args["period"]}
-            text = rng.choice(POLITE[style]) + text + rng.choice(POLITE_END[style])
-            if style != "hi" and rng.random() < noise:
+            text = rng.choice(POLITE[words]) + text + rng.choice(POLITE_END[words])
+            if style == "sp":
+                text = to_spoken(text, rng)  # no keyboard typos - a recogniser's slips instead
+            elif style != "hi" and rng.random() < noise:
                 text = _typo(text, rng)
-            if style != "hi" and rng.random() < 0.3:
+            if style not in ("hi", "sp") and rng.random() < 0.3:
                 text = _PLACEHOLDER.sub(lambda m: m.group(0).upper(), text.lower())
             if text in seen:
                 continue
@@ -1035,12 +1047,15 @@ def split(examples: list[Example], test_share: float = 0.15, seed: int = 7) -> t
     rng = random.Random(seed)
     by_group: dict[tuple[str, str], list[str]] = {}
     for tid, intent, style, _t in templates():
-        by_group.setdefault((intent, style), []).append(tid)
+        if style != "sp":
+            by_group.setdefault((intent, style), []).append(tid)
     held: set[str] = set()
     for tids in by_group.values():
         if len(tids) >= 3:
             k = max(1, round(len(tids) * test_share))
             held.update(rng.sample(tids, k))
+    # a spoken template is held out exactly when its Hinglish original is
+    held |= {t.replace(f"/{SPOKEN_FROM}/", "/sp/") for t in held if f"/{SPOKEN_FROM}/" in t}
     train = [e for e in examples if e.template_id not in held]
     test = [e for e in examples if e.template_id in held]
     return train, test

@@ -19,6 +19,8 @@ from hth.ui.views.base import BaseView
 from hth.ui.widgets.dialogs import Field, confirm, info, run_form
 from hth.ui.widgets.forms import Card, primary_button, secondary_button
 
+_SPEAK = {"voice": "When I speak", "always": "Always", "never": "Never"}  # Settings -> Assistant -> Speak answers
+
 
 class SettingsView(BaseView):
     key = "settings"
@@ -467,6 +469,17 @@ class SettingsView(BaseView):
             actions.pack(fill="x", pady=(8, 0))
             secondary_button(actions, "Install model…", self.install_model, width=150).pack(side="left")
             secondary_button(actions, "Remove model", self.remove_model, width=130).pack(side="left", padx=8)
+            secondary_button(actions, "Install voice model…", self.install_voice, width=180).pack(
+                side="left", padx=(16, 0)
+            )
+            speak = ctk.CTkFrame(body, fg_color="transparent")
+            speak.pack(fill="x", pady=(10, 0))
+            ctk.CTkLabel(speak, text="Speak answers", font=theme.font(12), anchor="w").pack(side="left", padx=(0, 10))
+            self.speak_mode = ctk.CTkSegmentedButton(
+                speak, values=list(_SPEAK.values()), command=self._set_speak_mode, font=theme.font(12)
+            )
+            self.speak_mode.set(_SPEAK[self.ctx.prefs.assistant_speak()])
+            self.speak_mode.pack(side="left")
         self._show_assistant_status()
 
     def _show_assistant_status(self) -> None:
@@ -502,7 +515,69 @@ class SettingsView(BaseView):
             else "The assistant answers questions in Hindi, Hinglish or English - it only looks things up, it never "
             "changes anything. Its built-in understanding is always on."
         )
-        self.assistant_status.configure(text=i18n.Raw(intro + "\n" + model))
+        self.assistant_status.configure(text=i18n.Raw(intro + "\n" + model + "\n" + self._voice_status(hi)))
+
+    def _voice_status(self, hi: bool) -> str:
+        from hth.assistant import speech, voice
+
+        folder = voice.find_model_dir(voice.voice_dir(self.ctx.settings.data_dir))
+        if folder is None:
+            text = (
+                "आवाज़ से पूछना: मॉडल नहीं लगा - alphacephei.com/vosk/models से vosk-model-small-hi-0.22.zip "
+                "(42 MB) लेकर 'आवाज़ मॉडल लगाएँ' से लगाएँ।"
+                if hi
+                else "Asking by voice: no voice model - download vosk-model-small-hi-0.22.zip (42 MB) from "
+                "alphacephei.com/vosk/models and install it with Install voice model…."
+            )
+        else:
+            size = sum(f.stat().st_size for f in folder.rglob("*") if f.is_file()) / 1e6
+            text = (
+                f"आवाज़ से पूछना: {folder.name}, {size:.0f} MB।"
+                if hi
+                else f"Asking by voice: {folder.name}, {size:.0f} MB."
+            )
+            if not voice.backend_available():
+                text += " इसके लिए vosk और sounddevice पैकेज चाहिए।" if hi else " It needs pip install vosk sounddevice."
+        names = speech.voice_names()
+        if "hi" in names:
+            text += f" जवाब बोलने वाली आवाज़: {names['hi']}।" if hi else f" Spoken answers: {names['hi']}."
+        else:
+            text += (
+                " Windows की हिंदी आवाज़ नहीं मिली (Settings → Time & language → Speech → Add voices → Hindi)।"
+                if hi
+                else " No Windows Hindi voice for spoken answers (Settings → Time & language → Speech → Add voices"
+                " → Hindi)."
+            )
+        return text
+
+    def _set_speak_mode(self, label: str) -> None:
+        mode = next(k for k, v in _SPEAK.items() if v == label)
+        self.ctx.prefs.set_assistant_speak(mode)
+
+    def install_voice(self) -> None:
+        from hth.assistant import voice
+
+        path = filedialog.askopenfilename(
+            title="Choose the voice model (vosk-model-small-hi-0.22.zip)",
+            filetypes=[("Voice model", "*.zip"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path:
+            return
+        view = getattr(self.ctx.app, "_views", {}).get("assistant")
+        if getattr(view, "voice", None) is not None:
+            view.voice.unload()
+        self.ctx.toast("Installing the voice model…")
+
+        def done(folder) -> None:
+            self.ctx.audit.log(AuditCode.ASSISTANT, f"voice model installed {folder.name}", self.ctx.username)
+            if view is not None and getattr(view, "_ready", False):
+                view.voice = voice.VoiceModel(voice.voice_dir(self.ctx.settings.data_dir))
+                view.run_async(view._prepare_voice, view._voice_prepared, lambda exc: None)
+            self._show_assistant_status()
+            self.ctx.toast(f"Voice model installed: {folder.name}", "success")
+
+        self.run_async(lambda: voice.install_zip(Path(path), self.ctx.settings.data_dir), done, self._model_failed)
 
     def _assistant_model(self):
         view = getattr(self.ctx.app, "_views", {}).get("assistant")
