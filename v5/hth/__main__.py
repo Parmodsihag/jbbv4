@@ -68,4 +68,7 @@ def _startup_error(message: str) -> None:
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    multiprocessing.freeze_support()  # the packaged app starts the assistant's model process from itself
     sys.exit(main())

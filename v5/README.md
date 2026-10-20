@@ -232,7 +232,11 @@ How it works (details in `docs/AI_CHAT_DESIGN.md`):
   sure about. Train it free on Kaggle: open a GPU notebook with Internet on, paste
   `tools/assistant/kaggle_train_cell.py` into one cell, run it (~40 min), download
   `hth_assistant_model.zip`, then **Settings → Assistant → Install model…**. Running it needs
-  `pip install llama-cpp-python` on the shop PC. No shop data is used for training.
+  `pip install llama-cpp-python` on the shop PC. No shop data is used for training. The cell
+  ends with a verdict: it compares System 1 alone with System 1 + the model and says whether
+  the model is worth installing. In the app the model runs in its own process (if this PC
+  cannot run it, only the model switches off) and is trusted only when it agrees with one of
+  System 1's three best guesses.
 * Check quality with `python tools/assistant/eval.py` (questions it never saw) and
   `python tools/assistant/eval_names.py` (finds your real customers; read-only, prints only
   totals). After changing `hth/assistant/data.py`, run

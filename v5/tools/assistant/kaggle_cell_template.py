@@ -18,11 +18,14 @@
 # ==================================================================================================
 
 BASE_MODELS = ["google/functiongemma-270m-it", "unsloth/functiongemma-270m-it", "Qwen/Qwen2.5-0.5B-Instruct"]
-EPOCHS = 3
+MAX_EPOCHS = 2  # an upper bound: training stops once unseen phrasings stop improving
+EVAL_EVERY = 50  # steps between checks on the validation templates
+PATIENCE = 4  # checks without improvement before stopping
 PER_TEMPLATE = 40  # generated questions per template (before de-duplication)
 LR = 2e-4
-LORA_R, LORA_ALPHA, LORA_DROPOUT = 16, 32, 0.05
+LORA_R, LORA_ALPHA, LORA_DROPOUT = 16, 32, 0.1
 BATCH = 32
+S1_CONFIDENT = 0.55  # hth/assistant/core.py CONFIDENT: below it the app consults System 2
 MAX_LEN = 192
 EVAL_QUESTIONS = 1500
 MAKE_Q4 = True  # also build llama.cpp's quantizer for a smaller Q4_K_M file (adds ~5 minutes)
@@ -50,9 +53,17 @@ for d in (TMP, OUT):
     d.mkdir(parents=True)
 
 
-def sh(cmd: str) -> None:
+def sh(cmd: str, log: pathlib.Path | None = None) -> None:
+    """Run a command; with ``log`` its (long) output goes to that file and is shown only on failure."""
     print("$", cmd, flush=True)
-    subprocess.run(cmd, shell=True, check=True)
+    if log is None:
+        subprocess.run(cmd, shell=True, check=True)
+        return
+    with open(log, "w") as out:
+        result = subprocess.run(cmd, shell=True, stdout=out, stderr=subprocess.STDOUT)
+    if result.returncode != 0:
+        print("".join(log.read_text(errors="replace").splitlines(keepends=True)[-40:]))
+        raise subprocess.CalledProcessError(result.returncode, cmd)
 
 
 def step(title: str) -> None:
@@ -60,25 +71,40 @@ def step(title: str) -> None:
 
 
 step("1/7 installing the training stack")
-sh('pip install -q -U "transformers>=4.53" "peft>=0.15" accelerate sentencepiece protobuf huggingface_hub')
+sh('pip install -q -U "transformers>=4.53" "peft>=0.15" accelerate sentencepiece huggingface_hub')
+# Kaggle's image ships an old torchao that new peft refuses to load next to; nothing here uses it.
+sh("pip uninstall -y -q torchao || true")
 
-# ---- the app's data generator, verbatim (hth/assistant/data.py) ----------------------------------
-DATA_PY = None  # @@DATA_PY@@
-(TMP / "hth_data.py").write_text(DATA_PY, encoding="utf-8")
-sys.path.insert(0, str(TMP))
-import importlib  # noqa: E402
-
-import hth_data as data  # noqa: E402
-
-importlib.reload(data)
+# ---- the app's own code, verbatim: the question generator and System 1 (hth/assistant/*) ---------
+FILES = None  # @@FILES@@
+SRC = TMP / "src"
+for name, source in FILES.items():
+    path = SRC / "hth" / "assistant" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+(SRC / "hth" / "__init__.py").write_text("", encoding="utf-8")
+(SRC / "hth" / "assistant" / "__init__.py").write_text("", encoding="utf-8")
+sys.path.insert(0, str(SRC))
+for loaded in [m for m in sys.modules if m == "hth" or m.startswith("hth.")]:
+    del sys.modules[loaded]  # a re-run of the cell picks up the fresh copy
+from hth.assistant import data  # noqa: E402
+from hth.assistant.system1 import IntentClassifier  # noqa: E402
 
 step("2/7 generating questions")
 examples = data.generate(per_template=PER_TEMPLATE, seed=SEED)
 train, test = data.split(examples)
-random.Random(SEED).shuffle(train)
+# a further slice of templates, never trained on, decides when to stop (the test set stays untouched)
+fit, val = data.split(train, test_share=0.1, seed=SEED + 11)
+if not val:
+    fit, val = train[: int(len(train) * 0.95)], train[int(len(train) * 0.95) :]
+random.Random(SEED).shuffle(fit)
+val = random.Random(SEED + 2).sample(val, min(800, len(val)))
 test = random.Random(SEED + 1).sample(test, min(EVAL_QUESTIONS, len(test)))
-print(f"corpus {data.CORPUS_VERSION}: {len(train)} training questions, {len(test)} held-out (unseen templates)")
-for e in train[:5]:
+print(
+    f"corpus {data.CORPUS_VERSION}: {len(fit)} training questions, {len(val)} for deciding when to stop, "
+    f"{len(test)} for the final check (templates it never sees)"
+)
+for e in fit[:5]:
     print("  ", e.style, "|", e.text, "->", data.target(e.intent, e.args))
 
 step("3/7 loading the base model")
@@ -100,12 +126,13 @@ for name in BASE_MODELS:
     try:
         tok = AutoTokenizer.from_pretrained(name, token=token)
         model = AutoModelForCausalLM.from_pretrained(
-            name, token=token, torch_dtype=torch.float32, attn_implementation="eager"
+            name, token=token, dtype=torch.float32, attn_implementation="eager"
         )
         BASE = name
         break
     except Exception as exc:  # noqa: BLE001
-        print(f"could not load {name}: {str(exc)[:300]}")
+        gated = "gated" in str(exc).lower() or "401" in str(exc)
+        print(f"could not load {name}: " + ("needs HF_TOKEN - trying the next one" if gated else str(exc)[:300]))
 if BASE is None:
     raise SystemExit("No base model could be downloaded - is Internet switched on for this notebook?")
 print("base model:", BASE, f"({sum(p.numel() for p in model.parameters()) / 1e6:.0f}M parameters)")
@@ -122,7 +149,8 @@ def encode(e):
     return ids, labels
 
 
-encoded = [encode(e) for e in train]
+encoded = [encode(e) for e in fit]
+val_encoded = [encode(e) for e in val]
 lengths = [len(i) for i, _ in encoded]
 print(f"tokens per question: mean {sum(lengths) / len(lengths):.0f}, max {max(lengths)} (limit {MAX_LEN})")
 
@@ -143,7 +171,9 @@ model = get_peft_model(model, lora).to(device)
 model.print_trainable_parameters()
 inner = model.get_base_model()  # the causal LM, with the LoRA layers inside
 softcap = getattr(inner.config, "final_logit_softcapping", None)
-use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()  # T4 / P100: plain fp32 (Gemma dislikes fp16)
+# Real bf16 needs compute capability 8+ (A100, L4...).  T4 / P100 would only emulate it (slow),
+# so they train in plain fp32 - fp16 is not an option, Gemma overflows in it.
+use_bf16 = device == "cuda" and torch.cuda.get_device_capability()[0] >= 8
 
 
 def loss_on_answer(ids, mask, labels):
@@ -176,8 +206,8 @@ def batches(rows, size, shuffle_seed):
 
 
 params = [p for p in model.parameters() if p.requires_grad]
-opt = torch.optim.AdamW(params, lr=LR, weight_decay=0.0)
-total_steps = EPOCHS * math.ceil(len(encoded) / BATCH)
+opt = torch.optim.AdamW(params, lr=LR, weight_decay=0.01)
+total_steps = MAX_EPOCHS * math.ceil(len(encoded) / BATCH)
 warmup = max(1, int(0.03 * total_steps))
 
 
@@ -187,9 +217,24 @@ def lr_at(s):
     return LR * 0.5 * (1 + math.cos(math.pi * (s - warmup) / max(1, total_steps - warmup)))
 
 
+def val_loss():
+    model.eval()
+    total = n = 0.0
+    with torch.no_grad():
+        for ids, mask, lab in batches(val_encoded, 64, 0):
+            total += loss_on_answer(ids, mask, lab).item() * len(ids)
+            n += len(ids)
+    model.train()
+    return total / max(1, n)
+
+
+# Templated questions are learnt by heart within an epoch (the first run reached a training loss of
+# 0.0003 and did worse on new phrasings), so keep the adapter from the moment the *unseen* phrasings
+# scored best and stop when they no longer improve.
 model.train()
 step_no, t_train = 0, time.time()
-for epoch in range(EPOCHS):
+best, best_step, best_state, stale, stop = float("inf"), 0, None, 0, False
+for epoch in range(MAX_EPOCHS):
     running = 0.0
     for k, (ids, mask, lab) in enumerate(batches(encoded, BATCH, SEED + epoch)):
         for g in opt.param_groups:
@@ -201,16 +246,36 @@ for epoch in range(EPOCHS):
         opt.zero_grad(set_to_none=True)
         running += loss.item()
         step_no += 1
-        if step_no % 50 == 0:
-            done = step_no / total_steps
-            eta = (time.time() - t_train) / done * (1 - done) / 60
+        if step_no % EVAL_EVERY == 0:
+            v = val_loss()
+            mark = ""
+            if v < best - 1e-4:
+                best, best_step, stale, mark = v, step_no, 0, "  * best so far"
+                best_state = {n: p.detach().clone() for n, p in model.named_parameters() if p.requires_grad}
+            else:
+                stale += 1
             print(
-                f"epoch {epoch + 1} step {step_no}/{total_steps} loss {running / (k + 1):.4f}"
-                f" (about {eta:.0f} min left)"
+                f"epoch {epoch + 1} step {step_no}/{total_steps}: training loss {running / (k + 1):.4f},"
+                f" unseen phrasings {v:.4f}{mark}"
             )
-    print(f"epoch {epoch + 1} done, mean loss {running / (k + 1):.4f}")
+            if stale >= PATIENCE:
+                print(f"no improvement on unseen phrasings for {PATIENCE} checks - stopping")
+                stop = True
+                break
+    if stop:
+        break
+if best_state is not None:
+    with torch.no_grad():
+        for n, p in model.named_parameters():
+            if n in best_state:
+                p.copy_(best_state[n])
+    print(f"kept the adapter from step {best_step} (unseen-phrasing loss {best:.4f})")
+print(f"training took {(time.time() - t_train) / 60:.1f} min")
 
 step("5/7 checking on questions it never saw")
+from transformers.utils import logging as hf_logging  # noqa: E402
+
+hf_logging.set_verbosity_error()  # one "max_new_tokens and max_length" warning per batch otherwise
 model.eval()
 tok.padding_side = "left"
 results = []
@@ -252,6 +317,54 @@ print("weakest intents:", sorted(report["by_intent"].items(), key=lambda t: t[1]
 for e, _got, text in [r for r, ok in zip(results, intent_ok, strict=True) if not ok][:12]:
     print(f"  MISS {e.intent:18} {e.text!r} -> {text.strip()[:80]!r}")
 
+# What decides whether the model is worth installing: the app asks System 1 first and only turns
+# to System 2 when System 1 is unsure - where it would otherwise ask "did you mean ...?".
+print("\nSystem 1 (the app's built-in classifier) on the same questions:")
+s1 = IntentClassifier.train(train)
+alone = with_s2 = 0
+unsure = unsure_s2_right = unsure_s1_right = 0
+policy = {"right": 0, "wrong": 0, "asked": 0}
+safe = {"right": 0, "wrong": 0, "asked": 0}
+for (e, got, _t), s2_ok in zip(results, intent_ok, strict=True):
+    p = s1.predict(e.text, top=3)
+    s1_ok = p.intent == e.intent
+    alone += s1_ok
+    if p.confidence >= S1_CONFIDENT:
+        with_s2 += s1_ok
+        continue
+    unsure += 1
+    unsure_s1_right += s1_ok
+    unsure_s2_right += s2_ok
+    with_s2 += s2_ok
+    policy["right" if s2_ok else "wrong"] += 1
+    in_top3 = got is not None and got[0] in [i for i, _p in p.ranked]
+    if in_top3:  # System 2 only breaks the tie between System 1's own top three
+        safe["right" if s2_ok else "wrong"] += 1
+    else:
+        safe["asked"] += 1
+n = len(results)
+report["system1_accuracy"] = alone / n
+report["with_system2_accuracy"] = with_s2 / n
+report["system1_unsure_share"] = unsure / n
+report["system2_right_when_system1_unsure"] = unsure_s2_right / max(1, unsure)
+report["when_unsure_trust_system2"] = policy
+report["when_unsure_trust_system2_if_in_top3"] = safe
+print(f"  System 1 alone:                  {alone / n:.3f}")
+print(f"  System 1, unsure ones to System 2: {with_s2 / n:.3f}   (System 1 unsure on {unsure} of {n})")
+print(f"  on those {unsure}: System 2 right {unsure_s2_right}, System 1's first guess right {unsure_s1_right}")
+print(f"  trusting System 2 there:          {policy}")
+print(f"  trusting it only within System 1's top 3 (else ask): {safe}")
+verdict = with_s2 > alone + 0.005 * n
+report["worth_installing"] = verdict
+print(
+    "  -> worth installing: "
+    + (
+        "yes - it answers some of the questions System 1 would have to ask back about"
+        if verdict
+        else "not yet - it does not beat System 1 alone; keep using the app without it"
+    )
+)
+
 step("6/7 merging and exporting GGUF")
 adapter_dir = OUT / "adapter"
 model.save_pretrained(adapter_dir)
@@ -272,26 +385,40 @@ torch.cuda.empty_cache()
 
 LCPP = TMP / "llama.cpp"
 sh(f"git clone -q --depth 1 https://github.com/ggml-org/llama.cpp {LCPP}")
-sh(f"pip install -q {LCPP}/gguf-py sentencepiece protobuf")
-sh("pip install -q mistral-common || true")  # some converter versions import it
+sh(f"pip install -q {LCPP}/gguf-py sentencepiece protobuf", TMP / "pip_gguf.log")
+sh("pip install -q mistral-common || true", TMP / "pip_mistral.log")  # some converter versions import it
 gguf_files = []
 q8 = OUT / "hth-assistant-q8_0.gguf"
-sh(f"python {LCPP}/convert_hf_to_gguf.py {merged} --outtype q8_0 --outfile {q8}")
+sh(f"python {LCPP}/convert_hf_to_gguf.py {merged} --outtype q8_0 --outfile {q8}", TMP / "convert_q8.log")
 gguf_files.append(q8)
 if MAKE_Q4:
     try:
         f16 = TMP / "hth-assistant-f16.gguf"
-        sh(f"python {LCPP}/convert_hf_to_gguf.py {merged} --outtype f16 --outfile {f16}")
-        sh(f"cmake -S {LCPP} -B {LCPP}/build -DGGML_CUDA=OFF -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release > /dev/null")
-        sh(f"cmake --build {LCPP}/build --target llama-quantize llama-simple -j 4 > /dev/null")
+        sh(f"python {LCPP}/convert_hf_to_gguf.py {merged} --outtype f16 --outfile {f16}", TMP / "convert_f16.log")
+        sh(
+            f"cmake -S {LCPP} -B {LCPP}/build -DGGML_CUDA=OFF -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release",
+            TMP / "cmake.log",
+        )
+        sh(f"cmake --build {LCPP}/build --target llama-quantize llama-simple -j 4", TMP / "build.log")
         q4 = OUT / "hth-assistant-q4_k_m.gguf"
-        sh(f"{LCPP}/build/bin/llama-quantize {f16} {q4} Q4_K_M > /dev/null")
+        sh(f"{LCPP}/build/bin/llama-quantize {f16} {q4} Q4_K_M", TMP / "quantize.log")
         gguf_files.insert(0, q4)
         sample = data.prompt("<C1> ka kitna baaki hai")
-        print("smoke test of the Q4_K_M file:")
-        subprocess.run(
-            [str(LCPP / "build/bin/llama-simple"), "-m", str(q4), "-n", "40", sample], check=False, timeout=300
+        smoke = subprocess.run(
+            [str(LCPP / "build/bin/llama-simple"), "-m", str(q4), "-n", "40", sample],
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
+        answer = smoke.stdout.split("<start_of_turn>model")[-1].strip()
+        speed = [line.strip() for line in smoke.stderr.splitlines() if "total time" in line or "speed:" in line]
+        print(f"smoke test of the Q4_K_M file on this CPU: '<C1> ka kitna baaki hai' -> {answer[:100]}")
+        print("  " + " | ".join(speed[-2:]))
+        if "call:customer_balance" in answer:
+            q8.unlink()  # the small file works: ship only it (the zip halves; the app uses Q4_K_M anyway)
+            gguf_files.remove(q8)
+        else:
+            print("  the Q4_K_M answer looks wrong - keeping the Q8_0 file in the zip as well")
     except Exception as exc:  # noqa: BLE001 - the Q8_0 file is enough
         print("Q4_K_M step skipped:", str(exc)[:300])
 for f in gguf_files:
@@ -305,7 +432,14 @@ manifest = {
     "corpus_version": data.CORPUS_VERSION,
     "intents": list(data.INTENTS),
     "trained": datetime.datetime.now().isoformat(timespec="seconds"),
-    "settings": {"epochs": EPOCHS, "lr": LR, "lora_r": LORA_R, "lora_alpha": LORA_ALPHA, "train_questions": len(train)},
+    "settings": {
+        "steps": step_no,
+        "kept_step": best_step,
+        "lr": LR,
+        "lora_r": LORA_R,
+        "lora_alpha": LORA_ALPHA,
+        "train_questions": len(fit),
+    },
     "eval": {k: v for k, v in report.items() if k != "by_intent"},
     "files": [f.name for f in gguf_files],
 }
@@ -320,4 +454,8 @@ with zipfile.ZipFile(zip_path, "w") as z:
 shutil.rmtree(OUT, ignore_errors=True)  # keep only the zip in the Output panel
 print(f"\nDONE in {(time.time() - T0) / 60:.0f} min -> {zip_path} ({zip_path.stat().st_size / 1e6:.0f} MB)")
 print(f"held-out accuracy: intent {report['intent_accuracy']:.3f}, intent + details {report['exact_accuracy']:.3f}")
+print(
+    f"System 1 alone {report['system1_accuracy']:.3f} -> with this model {report['with_system2_accuracy']:.3f}: "
+    + ("worth installing" if report["worth_installing"] else "not worth installing yet")
+)
 print("Download it from the Output panel, then on the shop PC: Settings -> Assistant -> Install model...")

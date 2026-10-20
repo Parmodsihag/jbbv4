@@ -30,7 +30,11 @@
   LoRA fine-tuned) consulted only when System 1 is unsure. Train it with the single Kaggle
   cell `tools/assistant/kaggle_train_cell.py` (paste, run, download the zip) and install it
   in **Settings → Assistant → Install model…**; it needs `pip install llama-cpp-python`.
-  Loaded on first use, unloaded after 10 idle minutes. Without it the assistant asks
+  It runs in its own process (a crash there - e.g. a Celeron without AVX - only switches it
+  off), started on first use and stopped after 10 idle minutes, and its answer is taken only
+  when it is one of System 1's three best guesses. First Kaggle run (FunctionGemma 270M,
+  15 min on a T4): System 1 alone 95.3 % → with the model 96.9 % on unseen phrasings; Q4_K_M
+  file 253 MB, ~0.7 s per question on Kaggle's CPU. Without it the assistant asks
   *"did you mean …"* instead.
 - Every answer is logged in the audit log (code 13) with the tool and its arguments - the
   question text and names are not.
