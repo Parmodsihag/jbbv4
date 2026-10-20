@@ -372,6 +372,23 @@ LM has to beat to be worth installing.
 Weakest intents are near-synonyms (overdue vs coming karar, cash vs payable, expenses vs
 profit); low confidence turns into a "did you mean" question rather than a wrong answer.
 
+**System 2, first Kaggle run (2026-10-20)** — FunctionGemma 270M (open copy), LoRA r16, T4:
+
+| run | result |
+|---|---|
+| 3 epochs, no early stopping | training loss 0.0003 (templates learnt by heart); 83.9 % on unseen templates — Hinglish 72 % |
+| early stopping on validation templates (kept step 300 of 674, 8.6 min) | the model alone still 83.9 %; System 1 alone 95.3 % → **96.9 %** when System 1's unsure questions (113 of 1500) go to the model |
+| on those 113 | model right 94, System 1's first guess right 69 |
+| trust the model there | 94 right, 19 wrong |
+| trust it only within System 1's top 3, else ask (**chosen**) | 92 right, 11 wrong, 10 asked |
+| Q4_K_M file | 253 MB, correct smoke-test call, ~0.7 s per question on Kaggle's CPU |
+
+So the model is a tie-breaker, not a replacement: alone it is weaker than System 1 (it learns
+the templates' wording, System 1 learns the concepts), but it is right on most questions
+System 1 is unsure about. It runs in a separate process: a llama.cpp build that uses AVX on a
+Celeron without it dies with an uncatchable "illegal instruction", and that must not close
+the shop program.
+
 ---
 
 ## 9. Later: actions with confirmation (not in 5.2)

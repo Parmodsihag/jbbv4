@@ -35,6 +35,7 @@ _ALSO = {norm.key(w) for w in "aur and bhi also phir about".split()}  # "aur pic
 _PRONOUN = {norm.key(w) for w in "usi uska uski uske unka unki unke iska iski iske his her their same".split()}
 _SINGLE_DAY_TWINS = {"period_sales": "day_summary"}  # a range question about one day
 _RANGE_TWINS = {"day_summary": "period_sales"}
+_CHAT_INTENTS = ("help", "greeting", "unsupported")  # answered without a tool
 
 
 @dataclass
@@ -209,7 +210,10 @@ class Assistant:
         source = "system1"
         if prob < CONFIDENT and self.system2 is not None and self.system2.available():
             call = self.system2.call(masked)  # only its choice of tool is used; slots stay ours
-            if call is not None and (call[0] in TOOLS or call[0] in ("help", "greeting", "unsupported")):
+            # it only settles a tie among System 1's own three best guesses; anything else is asked
+            # back (measured on Kaggle: 11 wrong answers instead of 19 per 113 unsure questions)
+            top = {i for i, _p in ranked[:3]}
+            if call is not None and call[0] in top and (call[0] in TOOLS or call[0] in _CHAT_INTENTS):
                 intent, prob, source = call[0], max(prob, CONFIDENT), "system2"
         if prob < CONFIDENT:
             choices = [i for i, _p in ranked[:3] if i in TOOLS]

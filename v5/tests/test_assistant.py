@@ -264,6 +264,9 @@ def test_kaggle_cell_is_up_to_date():
     cell = builder.CELL.read_text(encoding="utf-8")
     assert cell == builder.build(), "run python tools/assistant/build_kaggle_cell.py"
     compile(cell, str(builder.CELL), "exec")
+    from hth.assistant.core import CONFIDENT
+
+    assert f"S1_CONFIDENT = {CONFIDENT}" in cell  # the cell judges System 2 by the app's own threshold
 
 
 # System 2 -----------------------------------------------------------------------------------
@@ -274,25 +277,74 @@ def _fake_model_folder(folder, version=data.PROMPT_VERSION):
     return folder
 
 
-def test_system2_is_used_only_when_system1_is_unsure(db, shop, classifier, tmp_path):
-    seen = []
-
+def _answering(intent, seen=None):
     def loader(path, threads, ctx):
         def run(prompt):
-            seen.append(prompt)
-            return "<start_function_call>call:reorder{}<end_function_call>"
+            if seen is not None:
+                seen.append(prompt)
+            return f"<start_function_call>call:{intent}{{}}<end_function_call>"
 
         return run
 
-    model = LocalModel(_fake_model_folder(tmp_path / "models"), loader=loader, idle_seconds=60)
+    return loader
+
+
+UNCLEAR = "zxq vbnm plok"  # System 1 cannot place it
+
+
+def test_system2_is_used_only_when_system1_is_unsure(db, shop, classifier, tmp_path):
+    top3 = [i for i, _p in route(classifier, UNCLEAR, TODAY)[:3]]
+    pick = next(i for i in top3 if i in TOOLS)
+    seen = []
+    model = LocalModel(_fake_model_folder(tmp_path / "models"), loader=_answering(pick, seen), idle_seconds=60)
     bot = Assistant(db, today=TODAY, classifier=classifier, system2=model)
     assert bot.ask("urea kitna bacha hai", Session()).source == "system1"
     assert not seen
-    reply = bot.ask("zxq vbnm plok", Session())
+    reply = bot.ask(UNCLEAR, Session())
     assert seen and "<start_of_turn>user" in seen[0]
-    assert reply.tool == "reorder" and reply.source == "system2"
+    assert reply.tool == pick and reply.source == "system2"
     model.unload()
     assert not model.loaded
+
+
+def test_system2_outside_system1s_top_three_is_asked_back(db, shop, classifier, tmp_path):
+    top3 = {i for i, _p in route(classifier, UNCLEAR, TODAY)[:3]}
+    outsider = next(i for i in TOOLS if i not in top3)
+    model = LocalModel(_fake_model_folder(tmp_path / "models"), loader=_answering(outsider))
+    reply = Assistant(db, today=TODAY, classifier=classifier, system2=model).ask(UNCLEAR, Session())
+    assert reply.kind == "unsure" and reply.tool != outsider
+
+
+def _echo_factory(path, threads, ctx):
+    return lambda prompt: "<start_function_call>call:reorder{}<end_function_call>"
+
+
+def _crashing_factory(path, threads, ctx):
+    import os
+
+    os._exit(3)  # what an "illegal instruction" in llama.cpp looks like from outside
+
+
+def test_model_runs_in_its_own_process(tmp_path):
+    from hth.assistant.system2 import ProcessRunner
+
+    runner = ProcessRunner(tmp_path / "m.gguf", 1, 64, factory=_echo_factory)
+    try:
+        assert data.parse_call(runner(data.prompt("<C1> ka hisab"))) == ("reorder", {})
+    finally:
+        runner.close()
+
+
+def test_a_crashing_model_process_only_switches_system2_off(db, shop, classifier, tmp_path):
+    from hth.assistant.system2 import ProcessRunner
+
+    def loader(path, threads, ctx):
+        return ProcessRunner(path, threads, ctx, factory=_crashing_factory)
+
+    model = LocalModel(_fake_model_folder(tmp_path / "models"), loader=loader)
+    reply = Assistant(db, today=TODAY, classifier=classifier, system2=model).ask(UNCLEAR, Session())
+    assert reply.kind == "unsure"  # this process is alive and still answering
+    assert "exit code 3" in model.error and not model.available()
 
 
 def test_broken_model_falls_back_quietly(db, shop, classifier, tmp_path):
@@ -311,16 +363,14 @@ def test_install_zip_takes_only_model_files(tmp_path):
     with zipfile.ZipFile(src, "w") as z:
         z.writestr("hth_assistant_model/manifest.json", json.dumps({"prompt_version": data.PROMPT_VERSION}))
         z.writestr("hth_assistant_model/hth-assistant-q8_0.gguf", b"GGUF")
+        z.writestr("hth_assistant_model/hth-assistant-q4_k_m.gguf", b"GGUF")
         z.writestr("../../evil.gguf", b"x")
         z.writestr("adapter/adapter_model.safetensors", b"x")
     data_dir = tmp_path / "data"
     info = install_zip(src, data_dir)
     assert info.path.parent == data_dir / "models"
-    assert sorted(p.name for p in (data_dir / "models").iterdir()) == [
-        "evil.gguf",
-        "hth-assistant-q8_0.gguf",
-        "manifest.json",
-    ]
+    # only the file the app would use, plus the manifest
+    assert sorted(p.name for p in (data_dir / "models").iterdir()) == ["hth-assistant-q4_k_m.gguf", "manifest.json"]
     assert not (tmp_path / "evil.gguf").exists()
 
 
