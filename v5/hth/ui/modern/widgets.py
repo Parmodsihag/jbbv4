@@ -117,3 +117,23 @@ class StatRow(ctk.CTkFrame):
     def set(self, label: str, value: str, color: str = "text", big: bool = False) -> None:
         self.label.configure(text=label)
         self.value.configure(text=value, text_color=theme.color(color), font=theme.font(19 if big else 14, "bold"))
+
+
+def period_split(rows, balance: float) -> tuple[float, float]:
+    """(entered, interest) of a balance: the principal of the current period (after the last
+    settlement) and the interest on top of it.  The ledger shows interest unsigned, so it
+    is worked out as balance - principal rather than summed."""
+    last_settle = max((i for i, r in enumerate(rows) if r.tag == "0"), default=-1)
+    principal = sum(r.amount if r.type == "P" else -r.amount for r in rows[last_settle + 1 :] if r.tag != "0")
+    return round(principal, 2), round(balance - principal, 2)
+
+
+def style_option(menu: ctk.CTkOptionMenu) -> ctk.CTkOptionMenu:
+    """Drop-downs in the new layout's quiet grey, not customtkinter's default blue."""
+    menu.configure(
+        fg_color=theme.color("surface2"),
+        button_color=theme.color("surface3"),
+        button_hover_color=theme.color("surface3"),
+        text_color=theme.color("text"),
+    )
+    return menu
