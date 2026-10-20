@@ -20,12 +20,16 @@ import datetime as dt
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from hth.assistant import normalize as norm
 from hth.assistant.entities import Candidate, EntityIndex, resolve_choice
-from hth.assistant.system1 import IntentClassifier, concept
 from hth.assistant.tools import TOOLS, L, Services, Tool
 from hth.services.permissions import has_permission
+
+if TYPE_CHECKING:
+    # System 1 brings numpy, a quarter of a second at start-up: loaded on the first question
+    from hth.assistant.system1 import IntentClassifier
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +118,8 @@ class Assistant:
     @property
     def classifier(self) -> IntentClassifier:
         if self._classifier is None:
+            from hth.assistant.system1 import IntentClassifier
+
             self._classifier = IntentClassifier.cached(self.model_dir)
         return self._classifier
 
@@ -522,6 +528,8 @@ def route(classifier: IntentClassifier, masked: str, today: dt.date) -> list[tup
 
 def _unknown_words(classifier: IntentClassifier, masked: str) -> bool:
     """Is there a word the assistant has never seen - most likely a name it could not find?"""
+    from hth.assistant.system1 import concept
+
     return any(f"w:{t}" not in classifier.vocab and concept(t) is None for t in _content_words(masked))
 
 

@@ -9,7 +9,7 @@ module's own screen, straight on the chosen report.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import customtkinter as ctk
 
@@ -63,6 +63,37 @@ class Entry:
     hint: str
     group: str
     open: Callable[[], None]
+
+
+@dataclass
+class _Row:
+    entry: Entry
+    line: ctk.CTkFrame  # the rule above it
+    frame: ctk.CTkFrame
+    star: ctk.CTkButton
+    text: str  # what a search matches
+
+
+@dataclass
+class _Group:
+    card: ctk.CTkFrame
+    count: ctk.CTkLabel
+    rows: list[_Row]
+    end: ctk.CTkFrame  # room under the last row
+    visible: list[_Row] = field(default_factory=list)
+
+    def show(self) -> None:
+        """The card with just its visible rows, in their order."""
+        for r in self.rows:
+            r.line.pack_forget()
+            r.frame.pack_forget()
+        self.end.pack_forget()
+        for r in self.visible:
+            r.line.pack(fill="x", padx=14)
+            r.frame.pack(fill="x", padx=8, pady=1)
+        self.end.pack()
+        self.count.configure(text=str(len(self.visible)))
+        self.card.pack(fill="x", pady=(0, 10))
 
 
 class ReportsArea(BaseView):
@@ -150,15 +181,71 @@ class ReportsArea(BaseView):
         self.grid_box = ctk.CTkScrollableFrame(self.catalogue, fg_color="transparent")
         self.grid_box.pack(fill="both", expand=True, pady=(12, 0))
         self.grid_box.grid_columnconfigure((0, 1, 2), weight=1, uniform="g")
+        self._build_groups()
+
+    def _build_groups(self) -> None:
+        """Every group and row, built once: searching only shows and hides them (building
+        them again on every key press took most of a second a key)."""
+        groups: dict[str, list[Entry]] = {}
+        for e in self.entries:
+            groups.setdefault(e.group, []).append(e)
+        order = [g for g in GROUPS if g in groups] + [g for g in groups if g not in GROUPS]
+        # three columns: the long customers group alone, the rest stacked two by two
+        columns: list[list[str]] = [[], [], []]
+        for g in order:
+            columns[min(range(3), key=lambda i: sum(len(groups[x]) + 2 for x in columns[i]))].append(g)
+        built: dict[str, _Group] = {}
+        self._columns: list[list[_Group]] = []
+        for col, names in enumerate(columns):
+            box = ctk.CTkFrame(self.grid_box, fg_color="transparent")
+            box.grid(row=0, column=col, sticky="new", padx=(0 if col == 0 else 6, 0))
+            self._columns.append([built.setdefault(g, self._group(box, g, groups[g])) for g in names])
+        self._groups = [built[g] for g in order]
+        self._column_state: list[tuple | None] = [None] * len(self._columns)
+        self._starred: set[str] = set()
+        self._pins_drawn: tuple | None = None
+        self.no_match = ctk.CTkLabel(
+            self.grid_box, text="No report matches - try another word.", text_color=theme.color("muted")
+        )
 
     def _render(self) -> None:
         words = self.search.get().strip().lower().split()
         pins = self.pins()
+        self._render_pins(pins, searching=bool(words))
+        for g in self._groups:
+            g.visible = [r for r in g.rows if all(w in r.text for w in words)]
+        for i, column in enumerate(self._columns):
+            state = tuple(tuple(r.entry.id for r in g.visible) for g in column)
+            if state == self._column_state[i]:
+                continue  # this column shows the same rows already
+            self._column_state[i] = state
+            for g in column:
+                g.card.pack_forget()
+            for g in column:
+                if g.visible:
+                    g.show()
+        for g in self._groups:
+            for r in g.rows:
+                on = r.entry.id in pins
+                if on != (r.entry.id in self._starred):
+                    r.star.configure(
+                        text="★" if on else "☆", text_color=theme.color("accent") if on else theme.color("muted")
+                    )
+        self._starred = set(pins)
+        self._shown = [r.entry for g in self._groups for r in g.visible]
+        if self._shown:
+            self.no_match.grid_remove()
+        else:
+            self.no_match.grid(row=0, column=0, sticky="w", pady=20)
 
+    def _render_pins(self, pins: list[str], searching: bool) -> None:
+        if self._pins_drawn == (tuple(pins), searching):
+            return
+        self._pins_drawn = (tuple(pins), searching)
         for w in self.pinned.winfo_children():
             w.destroy()
         shown_pins = [e for p in pins for e in self.entries if e.id == p]
-        if shown_pins and not words:
+        if shown_pins and not searching:
             ctk.CTkLabel(
                 self.pinned,
                 text=i18n.tr("Pinned").upper(),
@@ -179,50 +266,25 @@ class ReportsArea(BaseView):
                 for w in (c, t, h):
                     w.bind("<Button-1>", lambda ev, en=e: en.open())
 
-        for w in self.grid_box.winfo_children():
-            w.destroy()
-        groups: dict[str, list[Entry]] = {}
-        for e in self.entries:
-            text = f"{e.title} {i18n.tr(e.title)} {e.hint} {e.group}".lower()
-            if all(w in text for w in words):
-                groups.setdefault(e.group, []).append(e)
-        order = [g for g in GROUPS if g in groups] + [g for g in groups if g not in GROUPS]
-        # three columns: the long customers group alone, the rest stacked two by two
-        columns: list[list[str]] = [[], [], []]
-        for g in order:
-            columns[min(range(3), key=lambda i: sum(len(groups[x]) + 2 for x in columns[i]))].append(g)
-        self._shown = [e for g in order for e in groups[g]]
-        for col, names in enumerate(columns):
-            box = ctk.CTkFrame(self.grid_box, fg_color="transparent")
-            box.grid(row=0, column=col, sticky="new", padx=(0 if col == 0 else 6, 0))
-            for g in names:
-                self._group(box, g, groups[g], pins)
-        if not self._shown:
-            ctk.CTkLabel(
-                self.grid_box, text="No report matches - try another word.", text_color=theme.color("muted")
-            ).grid(row=0, column=0, sticky="w", pady=20)
-
-    def _group(self, master, name: str, entries: list[Entry], pins: list[str]) -> None:
+    def _group(self, master, name: str, entries: list[Entry]) -> _Group:
         c = card(master)
-        c.pack(fill="x", pady=(0, 10))
         head = ctk.CTkFrame(c, fg_color="transparent")
         head.pack(fill="x", padx=14, pady=(10, 4))
         ctk.CTkLabel(head, text=name, font=theme.font(14, "bold")).pack(side="left")
-        ctk.CTkLabel(head, text=str(len(entries)), font=theme.font(12), text_color=theme.color("muted")).pack(
-            side="left", padx=8
-        )
+        count = ctk.CTkLabel(head, text=str(len(entries)), font=theme.font(12), text_color=theme.color("muted"))
+        count.pack(side="left", padx=8)
+        rows = []
         for e in entries:
-            ctk.CTkFrame(c, height=1, fg_color=theme.color("line")).pack(fill="x", padx=14)
+            line = ctk.CTkFrame(c, height=1, fg_color=theme.color("line"))
             r = ctk.CTkFrame(c, fg_color="transparent")
-            r.pack(fill="x", padx=8, pady=1)
             star = ctk.CTkButton(
                 r,
-                text="★" if e.id in pins else "☆",
+                text="☆",
                 width=26,
                 height=26,
                 fg_color="transparent",
                 hover_color=theme.color("surface_hover"),
-                text_color=theme.color("accent") if e.id in pins else theme.color("muted"),
+                text_color=theme.color("muted"),
                 font=theme.font(14),
                 command=lambda i=e.id: self.toggle_pin(i),
             )
@@ -243,7 +305,8 @@ class ReportsArea(BaseView):
                 ctk.CTkLabel(r, text=e.hint, font=theme.font(11), text_color=theme.color("muted")).pack(
                     side="left", padx=4
                 )
-        ctk.CTkFrame(c, height=6, fg_color="transparent").pack()
+            rows.append(_Row(e, line, r, star, f"{e.title} {i18n.tr(e.title)} {e.hint} {e.group}".lower()))
+        return _Group(c, count, rows, ctk.CTkFrame(c, height=6, fg_color="transparent"))
 
     def _open_first(self) -> None:
         if getattr(self, "_shown", None):

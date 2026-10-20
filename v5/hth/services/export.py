@@ -7,10 +7,6 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
-
 
 def safe_filename(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_") or "report"
@@ -22,6 +18,11 @@ def export_rows(
     rows: Sequence[Sequence[object]],
     title: str = "Report",
 ) -> Path:
+    # openpyxl (and the numpy it pulls in) takes about a second to load: only when exporting
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
     wb = Workbook()
     ws = wb.active
     ws.title = safe_filename(title)[:31]

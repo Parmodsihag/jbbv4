@@ -22,7 +22,7 @@ from hth.services.sales import money_flow_handler
 from hth.ui import theme
 from hth.ui.format import open_path, today_str
 from hth.ui.modern.actions import _lines
-from hth.ui.modern.widgets import button, card, dropdown_menu, popup, rupees, segmented
+from hth.ui.modern.widgets import Freshness, button, card, dropdown_menu, popup, rupees, segmented
 from hth.ui.views.base import BaseView
 from hth.ui.widgets.datatable import Column, DataTable
 from hth.ui.widgets.dialogs import Field, confirm, run_form
@@ -129,6 +129,7 @@ class CashBookPage(ctk.CTkFrame):
         self.view, self.ctx, self.flow = view, view.ctx, view.flow
         self.account_id: int | None = None
         self.tiles: dict[int, tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel]] = {}
+        self.fresh = Freshness(self.ctx.db)
 
         self.tile_row = ctk.CTkFrame(self, fg_color="transparent")
         self.tile_row.pack(fill="x")
@@ -190,9 +191,11 @@ class CashBookPage(ctk.CTkFrame):
 
     # Loading ---------------------------------------------------------------------------
     def on_show(self, **kwargs) -> None:
-        self.reload()
+        if self.fresh.stale():
+            self.reload()
 
     def reload(self) -> None:
+        self.fresh.filling()
         balances = self.flow.balances()
         if self.account_id not in {a.id for a, _b in balances}:
             default = self.flow.default_account_id()

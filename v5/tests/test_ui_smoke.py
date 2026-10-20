@@ -42,6 +42,7 @@ def app(tmp_path, monkeypatch):
     application.update()
     yield application
     application.destroy()
+    db.close()  # connections stay open between units of work: let the temp folder go
 
 
 def _pump(app, n=30):

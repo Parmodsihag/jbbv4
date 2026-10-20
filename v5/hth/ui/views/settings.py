@@ -739,13 +739,15 @@ class SettingsView(BaseView):
         row = ctk.CTkFrame(body, fg_color="transparent")
         row.pack(fill="x", pady=(10, 0))
         ctk.CTkLabel(row, text="Microphone", font=theme.font(12), anchor="w").pack(side="left", padx=(0, 10))
-        devices = voice.input_devices()
-        names = [d.name for d in devices if not d.loopback] + [d.name for d in devices if d.loopback]
         saved = self.ctx.prefs.assistant_mic()
         self.mic_menu = ctk.CTkOptionMenu(
-            row, values=["Automatic", *names], command=self._set_mic, font=theme.font(12), width=280
+            row,
+            values=["Automatic", *([saved] if saved else [])],
+            command=self._set_mic,
+            font=theme.font(12),
+            width=280,
         )
-        self.mic_menu.set(saved if saved in names else "Automatic")
+        self.mic_menu.set(saved or "Automatic")
         self.mic_menu.pack(side="left")
         secondary_button(row, "Test microphone", self.test_mic, width=150).pack(side="left", padx=8)
         self.mic_result = ctk.CTkLabel(
@@ -758,7 +760,21 @@ class SettingsView(BaseView):
             wraplength=900,
         )
         self.mic_result.pack(fill="x", pady=(4, 0))
-        chosen = voice.choose_device(saved)
+
+        # asking Windows for its microphones starts the sound system (a second on the shop
+        # PC): done in the background, so Settings opens without waiting for it
+        def find():
+            devices = voice.input_devices()
+            return devices, voice.choose_device(saved, devices)
+
+        self.run_async(find, self._mics_found, lambda _exc: None)
+
+    def _mics_found(self, found) -> None:
+        devices, chosen = found
+        names = [d.name for d in devices if not d.loopback] + [d.name for d in devices if d.loopback]
+        saved = self.ctx.prefs.assistant_mic()
+        self.mic_menu.configure(values=["Automatic", *names])
+        self.mic_menu.set(saved if saved in names else "Automatic")
         if chosen is not None:
             self._mic_note(f"Listening with: {chosen.name}", f"इससे सुनता है: {chosen.name}")
 

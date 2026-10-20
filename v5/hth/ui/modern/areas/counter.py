@@ -25,6 +25,7 @@ from hth.ui import theme
 from hth.ui.format import qty as fmt_qty
 from hth.ui.modern import actions
 from hth.ui.modern.widgets import (
+    Freshness,
     MoneyBlock,
     StatRow,
     balance_state,
@@ -44,6 +45,7 @@ from hth.ui.widgets.forms import DateField, LabeledEntry, LabeledOption
 from hth.ui.widgets.searchbox import SearchBox
 
 UNDO_MINUTES = 15  # how long the last entry can be undone from here (as on the classic screen)
+SIDE_WIDTH = 290  # the customer and summary columns: fixed, so the middle never moves
 QUALITY = ["A", "B", "C", "MIX"]
 INTEREST = f"Charged · {ANNUAL_INTEREST_RATE_PERCENT:g}% a year"
 NO_INTEREST = "No interest"
@@ -118,6 +120,7 @@ class CounterView(BaseView):
         self._lines: list[tuple[SaleLine, float]] = []  # lines waiting to be saved together
         self._last: tuple[list, str, float, int] | None = None  # (results, message, time, customer)
         self._money: dict[str, tuple[int, str]] = {}  # account name -> (id, what the ledger calls it)
+        self.fresh = Freshness(self.ctx.db)
         self.grid_columnconfigure(0, weight=0, minsize=290)
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure(2, weight=0, minsize=290)
@@ -131,8 +134,9 @@ class CounterView(BaseView):
 
     # Layout ----------------------------------------------------------------------------
     def _build_customer(self) -> None:
-        box = card(self)
+        box = card(self, width=SIDE_WIDTH)
         box.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        box.pack_propagate(False)  # a long name or entry must not widen it and squeeze the middle
         inner = ctk.CTkFrame(box, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=14, pady=14)
         caption(inner, "Customer · farmer · supplier").pack(fill="x")
@@ -391,8 +395,9 @@ class CounterView(BaseView):
         self.settle_row = (self.settle, self.settle_hint)
 
     def _build_summary(self) -> None:
-        box = card(self)
+        box = card(self, width=SIDE_WIDTH)
         box.grid(row=0, column=2, sticky="nsew", padx=(12, 0))
+        box.pack_propagate(False)
         inner = ctk.CTkFrame(box, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=14, pady=14)
         # packed first, from the bottom up: Save always keeps its room on a small screen
@@ -532,10 +537,13 @@ class CounterView(BaseView):
     def on_show(
         self, customer_id: int | None = None, intent: str | None = None, item_id: int | None = None, **kwargs
     ) -> None:
-        self.cust.refresh()
-        self.item.refresh()
-        self._refresh_money()
-        self._refresh_today()
+        stale = self.fresh.stale()
+        if stale:
+            self.fresh.filling()
+            self.cust.refresh()
+            self.item.refresh()
+            self._refresh_money()
+            self._refresh_today()
         if intent:
             self.set_intent(intent, focus=False)
         if item_id is not None and self.intent.goods:  # from Stock: Purchase / Sale of this item
@@ -543,7 +551,7 @@ class CounterView(BaseView):
             self._on_item(item_id, focus=False)
         if customer_id is not None:
             self.pick_customer(customer_id)
-        elif self.customer_id is not None:
+        elif self.customer_id is not None and stale:
             self.pick_customer(self.customer_id)  # the balance may have changed elsewhere
         self.after(100, self._focus_next)
 

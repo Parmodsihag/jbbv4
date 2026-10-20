@@ -39,6 +39,10 @@ class ModernShell(ctk.CTkFrame):
         ctk.CTkFrame(self, height=1, fg_color=theme.color("line"), corner_radius=0).pack(fill="x")
         self.content = ctk.CTkFrame(self, fg_color="transparent")
         self.content.pack(fill="both", expand=True, padx=16, pady=(12, 6))
+        # A screen fills the room it is given.  Without this, every change in what a screen
+        # asks for (a customer picked, a tab switched) re-laid-out the whole window - and a
+        # tall screen pushed the status line off the bottom.
+        self.content.pack_propagate(False)
         self._build_status_bar()
         self._bind_keys()
 

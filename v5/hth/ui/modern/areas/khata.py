@@ -22,6 +22,7 @@ from hth.ui import theme
 from hth.ui.format import open_path
 from hth.ui.modern import actions
 from hth.ui.modern.widgets import (
+    Freshness,
     balance_state,
     caption,
     card,
@@ -113,6 +114,7 @@ class CustomersPage(ctk.CTkFrame):
         self.view, self.ctx = view, view.ctx
         self._all: list[tuple] = []
         self._pending = None
+        self.fresh = Freshness(self.ctx.db)
         self.grid_columnconfigure(0, weight=0, minsize=350)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -169,16 +171,26 @@ class CustomersPage(ctk.CTkFrame):
         self.page.restyle()
 
     def on_show(self, customer_id: int | None = None, **kwargs) -> None:
-        self.reload()
-        if customer_id is not None:
+        stale = self.fresh.stale()
+        if stale:
+            self.reload()
+        shown = self.page.customer.id if self.page.customer is not None else None
+        if customer_id is not None and (stale or customer_id != shown):
             self.open(customer_id)
-        elif self.page.customer is not None:
-            self.open(self.page.customer.id)
+        elif customer_id is None and shown is not None and stale:
+            self.open(shown)
         self.after(80, self.search.focus_set)
 
     def reload(self) -> None:
         self.table.set_footer("Loading balances…")
-        self.view.run_async(lambda: self.ctx.categories.customer_summaries(scope="all"), self._loaded)
+        self.fresh.filling()
+        self.view.run_async(
+            lambda: self.ctx.categories.customer_summaries(scope="all"), self._loaded, self._load_failed
+        )
+
+    def _load_failed(self, exc: Exception) -> None:
+        self.fresh.forget()
+        self.view._default_fail(exc)
 
     def _loaded(self, summaries) -> None:
         rows = []
@@ -637,6 +649,8 @@ class CollectionsPage(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.view, self.ctx = view, view.ctx
         self.selected: tuple | None = None
+        self.fresh = Freshness(self.ctx.db)
+        self._buckets: dict[str, list[tuple]] = {b: [] for b in BUCKETS}
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0, minsize=330)
         self.grid_rowconfigure(0, weight=1)
@@ -645,7 +659,7 @@ class CollectionsPage(ctk.CTkFrame):
         main.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         bar = ctk.CTkFrame(main, fg_color="transparent")
         bar.pack(fill="x", padx=12, pady=(12, 6))
-        self.bucket = segmented(bar, BUCKETS, command=lambda _v: self.reload(), height=32)
+        self.bucket = segmented(bar, BUCKETS, command=lambda _v: self._show_bucket(), height=32)
         self.bucket.set("Late")
         self.bucket.pack(side="left")
         self.find = ctk.CTkEntry(bar, placeholder_text="Find…", width=150, height=32)
@@ -720,9 +734,11 @@ class CollectionsPage(ctk.CTkFrame):
             self._shown = True  # open where the work is: late promises, else today's
             late = [e for e in self.ctx.krar.entries("past")]
             self.bucket.set("Late" if late else "Today")
-        self.reload()
+        if self.fresh.stale():
+            self.reload()
 
     def reload(self) -> None:
+        self.fresh.filling()
         today = dt.date.today()
         today_s = today.isoformat()
         week = (today + dt.timedelta(days=7)).isoformat()
@@ -764,11 +780,16 @@ class CollectionsPage(ctk.CTkFrame):
                 )
         buckets["Late"].sort(key=lambda r: r[8])
         buckets["Owe us, no promise"].sort(key=lambda r: -r[2])
-        rows = buckets[self.bucket.get()]
+        self._buckets = buckets
         self.counts.configure(
             text="   ·   ".join(f"{b} {len(buckets[b])}" for b in BUCKETS if b != "Owe us, no promise")
             + f"   ·   no promise {len(buckets['Owe us, no promise'])}"
         )
+        self._show_bucket()
+
+    def _show_bucket(self) -> None:
+        """The chosen chip's rows - from the last load, so switching chips reads nothing."""
+        rows = self._buckets[self.bucket.get()]
         self.table.set_rows(rows, "")
         owed = sum(r[2] for r in rows if r[2] > 0)
         self.total_label.configure(text=f"{len(rows)} shown · {rupees(owed)} owed")

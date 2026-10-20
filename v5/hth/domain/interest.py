@@ -14,6 +14,7 @@ left running past midnight used yesterday's date.
 from __future__ import annotations
 
 import datetime as dt
+from functools import lru_cache
 
 from hth.domain.constants import (
     DAILY_INTEREST_RATE,
@@ -28,7 +29,14 @@ def parse_date(value: str | dt.date) -> dt.date:
         return value.date()
     if isinstance(value, dt.date):
         return value
-    return dt.datetime.strptime(value.strip(), DATE_FMT).date()
+    return _parse(value)
+
+
+@lru_cache(maxsize=8192)
+def _parse(text: str) -> dt.date:
+    # strptime is slow and every balance parses each entry's date; a shop has a few
+    # thousand distinct dates, parsed over and over (errors are not cached)
+    return dt.datetime.strptime(text.strip(), DATE_FMT).date()
 
 
 def financial_year_end(day: dt.date) -> dt.date:
@@ -48,14 +56,23 @@ def interest_schedule(
     end = parse_date(to_date) if to_date is not None else dt.date.today()
     principal = float(principal)
     out = []
-    while start < end:
-        period_end = min(financial_year_end(start), end)
-        days = (period_end - start).days
+    for period_end, days in _periods(start, end):
         interest = principal * days * DAILY_INTEREST_RATE
         out.append((period_end, interest))
         principal += interest
-        start = period_end + dt.timedelta(days=1)
     return out
+
+
+@lru_cache(maxsize=8192)
+def _periods(start: dt.date, end: dt.date) -> tuple[tuple[dt.date, int], ...]:
+    """(period end, days) per financial year from ``start`` to ``end`` - dates only, so the
+    same for every entry of that day; the money arithmetic stays in interest_schedule."""
+    out = []
+    while start < end:
+        period_end = min(financial_year_end(start), end)
+        out.append((period_end, (period_end - start).days))
+        start = period_end + dt.timedelta(days=1)
+    return tuple(out)
 
 
 def fy_label(day: dt.date) -> str:

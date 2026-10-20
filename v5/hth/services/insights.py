@@ -27,6 +27,10 @@ BACKUP_STALE_DAYS = 2
 MONEY_UNITS = {"INR", "RS", "RUPEE", "RUPEES"}
 MONEY_NAMES = {"CASH", "UPI", "BANK"}
 
+# (username, salt, stored hash) -> is it still the first-launch password?  A new password
+# is a new hash, so it is checked again then.
+_still_default: dict[tuple[str, str, str], bool] = {}
+
 
 @dataclass(frozen=True)
 class Insight:
@@ -85,8 +89,17 @@ class InsightsService:
 
     def default_password_users(self) -> list[str]:
         """Built-in accounts still using their first-launch password (admin/admin, emp1/emp1)."""
-        auth = AuthService(self.db)
-        return [u for u, p, _n, _r in DEFAULT_USERS if auth.verify(u, p) is not None]
+        out = []
+        for username, password, _n, _r in DEFAULT_USERS:
+            row = self.db.fetchone("SELECT salt, password_hash, is_active FROM users WHERE username = ?", (username,))
+            if row is None or not row["is_active"]:
+                continue
+            key = (username, row["salt"], row["password_hash"])
+            if key not in _still_default:  # hashing takes a moment on purpose: once per stored password
+                _still_default[key] = AuthService(self.db).verify(username, password) is not None
+            if _still_default[key]:
+                out.append(username)
+        return out
 
     # The list ----------------------------------------------------------------------------
     def collect(self, summaries: list[CustomerSummary], today: dt.date | None = None) -> list[Insight]:

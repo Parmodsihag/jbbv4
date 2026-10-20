@@ -7,6 +7,13 @@ context manager, so every write is an atomic transaction and errors roll back cl
 Nested ``with db.connect()`` blocks on the same thread reuse the outer connection, so a
 service that calls other services (e.g. recording a sale touches accounts, inventory and
 the audit log) commits once, atomically, at the outermost block.
+
+Each thread keeps its connection open between units of work (v5.6).  Opening one costs
+about 300 times a small query - on Windows it creates the WAL side files, and closing the
+last one checkpoints and deletes them again, under the virus scanner's eyes - and a screen
+makes dozens of small queries.  The unit of work is unchanged: commit or roll back at the
+outermost block, exactly as before.  :meth:`Database.close` closes them all (at exit, and
+before the file itself is copied over or deleted).
 """
 
 from __future__ import annotations
@@ -27,6 +34,16 @@ class Database:
         self._local = threading.local()
         # ':memory:' databases vanish per-connection, so keep one open (tests).
         self._memory_conn: sqlite3.Connection | None = self._open() if self.is_memory else None
+        self._lock = threading.Lock()
+        self._kept: dict[int, sqlite3.Connection] = {}  # thread ident -> its open connection
+        self._generation = 0  # close() moves it on: connections kept before are not reused
+        self._version = 0
+
+    @property
+    def version(self) -> int:
+        """Goes up with every committed change.  A screen that remembers the version it was
+        filled at can skip reloading while nothing has been written since."""
+        return self._version
 
     def _open(self) -> sqlite3.Connection:
         # timeout: wait for a busy write lock instead of failing while a background
@@ -37,6 +54,43 @@ class Database:
         if not self.is_memory:
             conn.execute("PRAGMA journal_mode = WAL")
         return conn
+
+    def _thread_conn(self) -> sqlite3.Connection:
+        """This thread's kept connection, opened on first use."""
+        if self._memory_conn is not None:
+            return self._memory_conn
+        conn = getattr(self._local, "kept", None)
+        if conn is not None and getattr(self._local, "generation", None) == self._generation:
+            return conn
+        conn = self._open()
+        self._local.kept, self._local.generation = conn, self._generation
+        with self._lock:
+            alive = {t.ident for t in threading.enumerate()}
+            for ident in [i for i in self._kept if i not in alive]:
+                _quietly_close(self._kept.pop(ident))  # its thread has finished
+            replaced = self._kept.get(threading.get_ident())
+            if replaced is not None and replaced is not conn:
+                _quietly_close(replaced)
+            self._kept[threading.get_ident()] = conn
+        return conn
+
+    def _forget_thread_conn(self, conn: sqlite3.Connection) -> None:
+        """A connection that failed even to roll back is not used again."""
+        self._local.kept = None
+        with self._lock:
+            if self._kept.get(threading.get_ident()) is conn:
+                del self._kept[threading.get_ident()]
+        _quietly_close(conn)
+
+    def close(self) -> None:
+        """Close every kept connection; the next unit of work opens a fresh one."""
+        if self._memory_conn is not None:
+            return
+        with self._lock:
+            self._generation += 1
+            kept, self._kept = list(self._kept.values()), {}
+        for conn in kept:
+            _quietly_close(conn)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -50,18 +104,24 @@ class Database:
             yield active
             return
 
-        conn = self._memory_conn if self._memory_conn is not None else self._open()
+        conn = self._thread_conn()
         self._local.conn = conn
+        changes = conn.total_changes
         try:
             yield conn
             conn.commit()
+            if conn.total_changes != changes:
+                with self._lock:
+                    self._version += 1
         except Exception:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                if conn is not self._memory_conn:
+                    self._forget_thread_conn(conn)
             raise
         finally:
             self._local.conn = None
-            if self._memory_conn is None:
-                conn.close()
 
     # Convenience helpers -----------------------------------------------------------
     def fetchall(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
@@ -88,3 +148,10 @@ class Database:
             finally:
                 dst.close()
         return dest
+
+
+def _quietly_close(conn: sqlite3.Connection) -> None:
+    try:
+        conn.close()
+    except sqlite3.Error:
+        pass
