@@ -24,7 +24,19 @@ from hth.services.sales import CROP_ITEM_TYPE, SaleLine, crop_handler, money_flo
 from hth.ui import theme
 from hth.ui.format import qty as fmt_qty
 from hth.ui.modern import actions
-from hth.ui.modern.widgets import MoneyBlock, StatRow, balance_state, caption, card, pill, rupees, segmented, set_pill
+from hth.ui.modern.widgets import (
+    MoneyBlock,
+    StatRow,
+    balance_state,
+    caption,
+    card,
+    period_split,
+    pill,
+    rupees,
+    segmented,
+    set_pill,
+    style_option,
+)
 from hth.ui.views.base import BaseView
 from hth.ui.widgets.datatable import Column, DataTable
 from hth.ui.widgets.dialogs import confirm
@@ -232,6 +244,7 @@ class CounterView(BaseView):
         bottom = ctk.CTkFrame(self.form, fg_color="transparent")
         bottom.pack(fill="x", side="bottom", padx=16, pady=(4, 14))
         self.interest = LabeledOption(bottom, "Interest", [INTEREST, NO_INTEREST], INTEREST, command=self._recalc_cmd)
+        style_option(self.interest.menu)
         self.interest.pack(side="left")
         self.date = DateField(bottom, "Date  (Alt+Up / Alt+Down)")
         self.date.pack(side="left", padx=(12, 0))
@@ -265,6 +278,7 @@ class CounterView(BaseView):
         self.qty = LabeledEntry(row, "Qty", placeholder="0")
         self.qty.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         self.unit = LabeledOption(row, "Unit", ALL_UNITS, "KG", command=self._recalc_cmd)
+        style_option(self.unit.menu)
         self.unit.grid(row=0, column=2, sticky="ew", padx=(8, 0))
         self.rate = LabeledEntry(row, "Rate ₹", placeholder="0.00")
         self.rate.grid(row=0, column=3, sticky="ew", padx=(8, 0))
@@ -599,8 +613,7 @@ class CounterView(BaseView):
             self.cust.set(c.id)
         rows = self.ctx.accounts.ledger(c.id)
         self._balance = bal = self.ctx.accounts.get_balance(c.id)
-        last_settle = max((i for i, r in enumerate(rows) if r.tag == "0"), default=-1)
-        interest = sum(r.interest or 0 for r in rows[last_settle + 1 :] if r.tag != "0")
+        _entered, interest = period_split(rows, bal)
 
         name = i18n.tr_cell(c.name)
         self.avatar.configure(text="".join(p[0] for p in c.name.split()[:2]).upper() or "?")

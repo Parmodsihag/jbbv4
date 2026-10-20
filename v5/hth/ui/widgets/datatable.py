@@ -58,6 +58,7 @@ class DataTable(ctk.CTkFrame):
         on_select: Callable[[Sequence[Any] | None], None] | None = None,
         row_tags: Callable[[Sequence[Any]], Sequence[str]] | None = None,
         height: int | None = None,
+        row_actions: Callable[[Sequence[Any]], Sequence[tuple[str, Callable[[], None]]]] | None = None,
         **kwargs,
     ):
         super().__init__(master, fg_color=theme.color("surface"), corner_radius=8, **kwargs)
@@ -66,6 +67,7 @@ class DataTable(ctk.CTkFrame):
         self._on_double_click = on_double_click
         self._on_select = on_select
         self._row_tags = row_tags
+        self._row_actions = row_actions  # extra right-click entries for a row: [(label, callback)]
         self._sort_col: int | None = None
         self._sort_desc = False
 
@@ -183,6 +185,12 @@ class DataTable(ctk.CTkFrame):
             if self._on_double_click:
                 menu.add_command(label="Open", command=lambda: self._dbl(None))
         menu.add_command(label=f"Copy all {len(self._rows)} rows (paste into Excel / WhatsApp)", command=self.copy_all)
+        row = self.selected_row() if iid else None
+        actions = list(self._row_actions(row)) if row is not None and self._row_actions else []
+        if actions:
+            menu.add_separator()
+            for label, callback in actions:
+                menu.add_command(label=tr(label), command=callback)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:

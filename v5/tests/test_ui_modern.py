@@ -92,7 +92,7 @@ def test_admin_lands_on_today_and_old_keys_find_their_area(app):
 
     app.navigate("customers", customer_id=c.id)
     _pump(app)
-    assert app.find_view("customers").ledger_panel.customer.id == c.id
+    assert app.find_view("customers").page.customer.id == c.id
     # Alt-letters of the classic layout are bound for the new one
     assert {"<Alt-s>", "<Alt-k>", "<Alt-b>", "<Alt-u>", "<Alt-h>"} <= set(app._shell_keys)
     assert ("Alt+K", "Khata › Collections") in app._modern.shortcut_list()
@@ -246,3 +246,96 @@ def test_signing_out_and_in_keeps_the_shop_layout(app):
     assert app._modern is None and app._shell is None
     _login(app, "emp1", "emp1")
     assert app._modern is not None and app._active == "counter"
+
+
+def _wait(app, cond, timeout=8.0):
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        app.update()
+        if cond():
+            return True
+        time.sleep(0.02)
+    return cond()
+
+
+def test_khata_customer_page_and_a_careful_delete(app, monkeypatch):
+    ctx = app.ctx
+    ram = ctx.accounts.add_customer("RAM", "KHARKHODA 9812345678", 1000, "2026-01-01", tag="2")
+    ctx.accounts.add_customer("SHYAM", "SAMPLA", 0, "2026-01-01")
+    ctx.accounts.add_transaction(ram.id, "2026-02-01", "UREA", 500, "P", "2", "admin")
+    _login(app, "admin", "admin")
+    app.navigate("customers", customer_id=ram.id)
+    khata = app._views["khata"]
+    assert khata.current == "customers"
+    page = khata.customers
+    assert _wait(app, lambda: len(page.table.rows) == 2)
+    assert page.page.customer.id == ram.id
+    assert page.page.amount.cget("text") == "₹1,500.00"
+    page.page.period.set("All")
+    page.page._apply_period()
+    assert len(page.page.ledger.rows) == 2
+    assert page.page.detail_rows["Phone"].cget("text") == "9812345678"
+    assert hasattr(page.page, "more_button")  # admin: edit / category / delete
+
+    said = {}
+    monkeypatch.setattr("hth.ui.widgets.dialogs.confirm", lambda parent, title, text: said.update(t=text) or True)
+    urea = next(r for r in page.page.ledger.rows if r[1] == "UREA")
+    page.page.delete(urea)
+    _pump(app)
+    assert "Stock is not changed" in said["t"] and "₹1,500.00" in said["t"] and "₹1,000.00" in said["t"]
+    assert ctx.accounts.get_balance(ram.id) == 1000
+
+    # the chips: owe us / we owe
+    page.chips.set("Owe us")
+    page._filter()
+    assert [r[3] for r in page.table.rows] == [ram.id]
+
+
+def test_khata_collections_buckets_and_side_panel(app, monkeypatch):
+    import datetime as dt
+
+    ctx = app.ctx
+    late = ctx.accounts.add_customer("LATE", "X", 500, "2026-01-01", tag="2")
+    due = ctx.accounts.add_customer("DUE", "X", 300, "2026-01-01", tag="2")
+    never = ctx.accounts.add_customer("NEVER", "X", 200, "2026-01-01", tag="2")
+    ctx.krar.add_or_update(late.id, "2026-01-05")
+    ctx.krar.add_or_update(due.id, dt.date.today().isoformat())
+    _login(app, "admin", "admin")
+    app.navigate("karar")
+    _pump(app)
+    khata = app._views["khata"]
+    assert khata.current == "karar"
+    col = khata.collections
+    assert col.bucket.get() == "Late"
+    assert [r[7] for r in col.table.rows] == [late.id]
+    col.table.select_first()
+    _pump(app)
+    assert col.selected[7] == late.id and "500" in col.reminder.get("1.0", "end")
+    col.bucket.set("Today")
+    col.reload()
+    assert [r[7] for r in col.table.rows] == [due.id]
+    col.bucket.set("Owe us, no promise")
+    col.reload()
+    assert never.id in [r[7] for r in col.table.rows] and late.id not in [r[7] for r in col.table.rows]
+
+    monkeypatch.setattr("hth.ui.widgets.dialogs.confirm", lambda *a: True)
+    col.bucket.set("Late")
+    col.reload()
+    col.table.select_first()
+    _pump(app)
+    col.kept()
+    _pump(app)
+    assert ctx.krar.unsettled_dates(late.id) == [] and col.table.rows == []
+
+
+def test_khata_for_an_employee(app):
+    c = app.ctx.accounts.add_customer("RAM", "X", 100, "2026-01-01")
+    _login(app, "emp1", "emp1")
+    app.navigate("customers", customer_id=c.id)
+    _pump(app)
+    page = app._views["khata"].customers.page
+    assert page.customer.id == c.id
+    assert not hasattr(page, "more_button")  # no corrections menu for employees
+    assert page._row_actions(("x",) * 10)[0][0] == "Only an admin can change an entry"
