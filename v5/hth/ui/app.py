@@ -323,7 +323,8 @@ class App(ctk.CTk):
             kinds.add("item")
         if self.ctx.can(Permission.BILLING) and any(e[0] == "bills" for e in self._registry):
             kinds.add("bill")
-        self._palette = SearchPalette(self, SearchService(self.ctx.db), kinds, self._search_pick)
+        on_ask = (lambda text: self.navigate("assistant", question=text)) if self._modern is not None else None
+        self._palette = SearchPalette(self, SearchService(self.ctx.db), kinds, self._search_pick, on_ask)
 
     def _search_pick(self, hit) -> None:
         if hit.kind == "customer":

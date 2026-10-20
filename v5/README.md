@@ -95,6 +95,16 @@ To publish an update: raise `__version__` in `hth/__init__.py`, add a `## <versi
 `CHANGELOG.md`, commit and push to the `v5` branch. A git checkout (like the developer's PC)
 updates itself with `git pull --ff-only` instead; a packaged build cannot update itself.
 
+### Two layouts: New and Classic
+
+v5.5 has two sets of screens over the same books. **New** (the default) puts six areas across
+the top - **Today** (the admin's home: what needs doing), **Counter** (every entry: Sale,
+Purchase, Payment in, Payment out), **Khata** (customers and Collections), **Stock**, **Money**
+and **Reports** - with Settings behind the gear and an Ask box (search, or a question for the
+Assistant; F2 speaks) on every screen. **Classic** is the sidebar layout described under
+*Screens* below. **Settings → Appearance & language → Layout** (admin) switches the whole shop;
+the user menu has "Switch to the classic layout". Every Alt-letter works in both.
+
 ---
 
 ## Roles and permissions
@@ -120,6 +130,8 @@ button checks it, and every write records the acting user in the audit log.
 ---
 
 ## Screens
+
+The classic layout's screens (the new layout's areas hold the same things - see *Two layouts*).
 
 * **Dashboard** – clickable tiles (receivable, payable, today's debits / credits, overdue
   krar, stock value, cash & bank, accounts) in lakh / crore with the exact figure beneath;
@@ -422,6 +434,8 @@ hth/
                             tools (read-only answers), core (dialog), data (training corpus)
   migration/from_v3.py      legacy importer
   ui/                       customtkinter app: theme, icons, widgets, views, app shell
+  ui/modern/                the new layout (v5.5): shell, area registry, widgets, actions,
+                            areas/ (today, counter, khata, stock, money, reports, settings)
   modules/                  optional feature modules (bills, crop trading) – see README there
 tests/                      pytest suite (business rules, migration, opt-in UI walkthrough)
 ```

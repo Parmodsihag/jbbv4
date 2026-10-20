@@ -39,6 +39,7 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
     from hth.ui.modern.areas.khata import KhataView
     from hth.ui.modern.areas.money import MoneyView
     from hth.ui.modern.areas.reports import ReportsArea
+    from hth.ui.modern.areas.settings import SettingsArea
     from hth.ui.modern.areas.stock import StockView
     from hth.ui.modern.areas.today import TodayView
     from hth.ui.views.assistant import AssistantView
@@ -104,6 +105,7 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
                 Tab("users", "Users", UsersView, Permission.MANAGE_USERS, "u"),
             ),
             in_bar=False,
+            factory=SettingsArea,  # rebuilt (v5.5): sections; Users is one of them
         ),
         Area("ask", "Ask", (Tab("assistant", "Assistant", AssistantView, None, "h"),), in_bar=False),
     ]

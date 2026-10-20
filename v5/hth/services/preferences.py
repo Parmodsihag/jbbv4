@@ -13,7 +13,7 @@ DEFAULTS = {
     "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
     "ui.text_scale": "1.0",  # 0.9 | 1.0 | 1.15 | 1.3
     "ui.language": "en",  # en | hi
-    "ui.layout": "classic",  # classic (sidebar, v5.4) | new (six areas across the top, v5.5)
+    "ui.layout": "new",  # new (six areas across the top, v5.5) | classic (the sidebar, as in v5.4)
     "assistant.speak": "voice",  # speak answers: voice (when the question was spoken) | always | never
     "assistant.mic": "",  # the recording device's name; "" = automatic (never a loopback like Stereo Mix)
     "update.repo": "Parmodsihag/jbbv4",  # where updates come from (GitHub owner/name)
@@ -110,7 +110,7 @@ class Preferences:
     def layout(self) -> str:
         """Which set of screens the whole shop uses: the classic sidebar or the new layout."""
         v = self.settings.get("ui.layout").lower()
-        return v if v in LAYOUTS else "classic"
+        return v if v in LAYOUTS else "new"
 
     def set_layout(self, layout: str) -> None:
         if layout not in LAYOUTS:

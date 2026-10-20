@@ -207,7 +207,7 @@ class ModernShell(ctk.CTkFrame):
             fg_color=theme.color("accent_soft"),
             hover_color=theme.color("surface2"),
             text_color=theme.color("accent"),
-            command=lambda: self.app.navigate("assistant"),
+            command=lambda: self.app.navigate("assistant", listen=True),
         )
         self.mic_button.pack(side="right", padx=4, pady=4)
 
@@ -270,8 +270,19 @@ class ModernShell(ctk.CTkFrame):
         self.backup_label.pack(side="right", padx=16)
 
     # Keys ------------------------------------------------------------------------------
+    def _speak(self, event=None) -> None:
+        """F2 from anywhere: open the Assistant listening.  In the Assistant's own box F2
+        is already its key - leave it to that, or the two would cancel each other out."""
+        view = self.find_view("assistant")
+        entry = getattr(view, "entry", None)
+        if event is not None and entry is not None and str(event.widget).startswith(str(entry)):
+            return
+        self.app.navigate("assistant", listen=True)
+
     def _bind_keys(self) -> None:
         bind = self.app.bind_shell_key
+        if any(t.key == "assistant" for a in self.areas for t in a.tabs):
+            bind("<F2>", self._speak)
         for area in self.areas:
             for t in area.tabs:
                 if t.shortcut:

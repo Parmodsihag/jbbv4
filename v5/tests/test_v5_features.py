@@ -343,11 +343,11 @@ def test_text_scale_preference(db):
         prefs.set_text_scale(2.0)
 
 
-def test_layout_preference_is_shop_wide_and_defaults_to_classic(db):
+def test_layout_preference_is_shop_wide_and_defaults_to_new(db):
     prefs = Preferences(db)
-    assert prefs.layout() == "classic"
-    prefs.set_layout("new")
-    assert Preferences(db).layout() == "new"  # stored for the whole shop
+    assert prefs.layout() == "new"  # v5.5: the new layout, unless the shop chose Classic
+    prefs.set_layout("classic")
+    assert Preferences(db).layout() == "classic"  # stored for the whole shop
     with pytest.raises(ValueError):
         prefs.set_layout("sideways")
 
