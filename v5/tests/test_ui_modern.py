@@ -396,3 +396,41 @@ def dt_today():
     import datetime as dt
 
     return dt.date.today().isoformat()
+
+
+def test_money_cash_book_bills_and_reports(app):
+    ctx = app.ctx
+    c = ctx.accounts.add_customer("RAM", "X", 1000, "2026-01-01", tag="2")
+    _login(app, "admin", "admin")
+    app.navigate("finance")
+    _pump(app)
+    money = app._views["money"]
+    assert money.current == "finance" and money.switch.get() == "Cash book"
+    book = money.book
+    flow = book.flow
+    cash = flow.money_accounts()[0]
+    ctx.sales.record("M", dt_today(), c.id, "CASH", 1, 400, "2", "admin", money_account_id=cash.id)
+    rent = next(h.id for h in flow.heads("expense") if h.name == "RENT")
+    flow.add_expense(dt_today(), cash.id, rent, 150, "october", "admin")
+    book.reload()
+    assert [r[3] for r in book.table.rows] == [None, 400]  # newest first: the expense, then the receipt
+    assert "Closing ₹250.00" in book.totals.cget("text")
+    assert book.tiles[cash.id][2].cget("text") == "₹250.00"
+
+    app.navigate("bills")
+    _pump(app, 40)
+    assert money.current == "bills" and app.find_view("bills") is not None
+    assert hasattr(app.find_view("bills"), "browse")
+
+    money.show_page("Reports & setup")
+    _pump(app, 40)
+    reports = money.hosted["Reports & setup"]
+    assert reports.book is None and reports.reports is not None  # no second cash book in the new layout
+
+
+def test_money_for_an_employee(app):
+    _login(app, "emp1", "emp1")
+    app.navigate("money")
+    _pump(app)
+    money = app._views["money"]
+    assert "Reports & setup" not in money.pages and "Cash book" in money.pages
