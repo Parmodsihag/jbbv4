@@ -413,6 +413,7 @@ suggestions, WhatsApp reminders. Still open, roughly in order of value:
 run.py                      launcher
 tools/migrate_v3.py         v3 → v4 import (writes migration_report.txt)
 tools/check_data.py         data-quality findings for the live database
+tools/readme_shots.py       the repository front page's screenshots, from a made-up demo shop
 tools/assistant/            eval.py, eval_names.py, eval_voice.py, the Kaggle cell and its builder
 hth/
   config.py                 data folder resolution, Settings
