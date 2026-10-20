@@ -131,10 +131,11 @@ def test_cancel_clears_the_open_question(bot, shop):
 
 def test_missing_customer_is_asked_for(bot, shop):
     session = Session()
-    reply = bot.ask("kab paise dega?", session)
-    if reply.kind == "ask":  # the customer is required: asked, then answered
-        reply = bot.ask("suresh", session)
-    assert reply.kind == "answer"
+    reply = bot.ask("phone number batao", session)
+    assert reply.kind == "ask"  # the customer is required: asked, then answered
+    reply = bot.ask("suresh", session)
+    assert reply.kind == "answer" and reply.tool == "customer_contact"
+    assert reply.args["customer"] == shop["s"].id
 
 
 def test_follow_ups_reuse_the_last_question(bot, shop):

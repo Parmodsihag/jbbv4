@@ -13,7 +13,9 @@ DEFAULTS = {
     "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
     "ui.text_scale": "1.0",  # 0.9 | 1.0 | 1.15 | 1.3
     "ui.language": "en",  # en | hi
+    "assistant.speak": "voice",  # speak answers: voice (when the question was spoken) | always | never
 }
+SPEAK_MODES = ("voice", "always", "never")
 LANGUAGES = ("en", "hi")
 TEXT_SCALES = (0.9, 1.0, 1.15, 1.3)
 THEMES = ("light", "dark", "system")
@@ -56,6 +58,15 @@ class Preferences:
         if float(scale) not in TEXT_SCALES:
             raise ValueError("Text size must be 90%, 100%, 115% or 130%.")
         self.settings.set("ui.text_scale", f"{float(scale):g}")
+
+    def assistant_speak(self) -> str:
+        v = self.settings.get("assistant.speak").lower()
+        return v if v in SPEAK_MODES else "voice"
+
+    def set_assistant_speak(self, mode: str) -> None:
+        if mode not in SPEAK_MODES:
+            raise ValueError("Speak answers must be voice, always or never.")
+        self.settings.set("assistant.speak", mode)
 
     def language(self) -> str:
         v = self.settings.get("ui.language").lower()

@@ -304,7 +304,7 @@ report = {
     "exact_accuracy": share(exact_ok),
     "by_style": {
         s: share([ok for (e, _g, _t), ok in zip(results, intent_ok, strict=True) if e.style == s])
-        for s in ("en", "hi", "hl")
+        for s in ("en", "hi", "hl", "sp")
     },
     "by_intent": {
         i: share([ok for (e, _g, _t), ok in zip(results, intent_ok, strict=True) if e.intent == i])

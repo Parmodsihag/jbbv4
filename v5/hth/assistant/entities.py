@@ -142,6 +142,17 @@ class EntityIndex:
         self.idf = {k: math.log(1 + n / len(ids)) for k, ids in self.by_key.items()}
         self.vocab = sorted(self.by_key)
 
+    def add_spellings(self, spellings: dict[str, str]) -> None:
+        """Voice spellings (``{stored Hindi word: how the recogniser writes it}``): a record whose
+        Hindi name or details holds the word is also found by the heard spelling."""
+        for word, heard in spellings.items():
+            ids = self.by_hi.get(word)
+            if not ids:
+                continue
+            for tok in _RAW_TOKEN.findall(heard or ""):
+                if _DEV.search(tok) and len(tok) >= 3 and key(romanize(tok)) not in _STOP:
+                    self.by_hi[tok] |= ids
+
     # Building ---------------------------------------------------------------------------
     @classmethod
     def from_db(cls, db, today: dt.date | None = None) -> EntityIndex:
@@ -226,7 +237,7 @@ class EntityIndex:
                 ranked = []
                 for rid, sc in scores.items():
                     rec = self.records[(kind, rid)]
-                    coverage = matched[rid] / max(1, len(rec.name_keys))
+                    coverage = min(1.0, matched[rid] / max(1, len(rec.name_keys)))
                     bonus = 0.6 * len(other & rec.detail_keys) + (0.05 if rec.recent else 0.0)
                     ranked.append((sc + 0.5 * coverage + bonus, rid))
                 ranked.sort(reverse=True)

@@ -531,3 +531,50 @@ def test_v5_assistant_chat_asks_back_and_answers(app):
     assert view.session.history[-1][1].tool == "customer_balance"
     view.new_chat()
     assert view.session.history == []
+
+
+def test_v5_assistant_voice_question_is_sent_and_spoken_back(app, monkeypatch):
+    from hth.assistant import voice
+
+    app.ctx.accounts.add_customer("RAMESH KUMAR", "ROHTAK", 500, "2026-01-01")
+    _login(app, "admin", "admin")
+    app.navigate("assistant")
+    view = app._views["assistant"]
+    assert _wait(app, lambda: view._ready, timeout=120)
+
+    class FakeVoice:
+        def available(self):
+            return True
+
+        def transcribe(self, pcm, grammar=None):
+            return voice.Heard("", [], False)
+
+        def unload(self):
+            pass
+
+    class FakeListener:
+        def __init__(self, model, grammar, on_event, **kw):
+            self.on_event, self.running = on_event, True
+
+        def start(self):
+            self.on_event(("partial", "रमेश का"))
+            self.on_event(("final", (voice.Heard("रमेश का बैलेंस बताओ", [("रमेश", 1.0)]), b"")))
+            self.running = False
+
+        def stop(self):
+            self.running = False
+
+    said = []
+    view.voice = FakeVoice()
+    view.speaker.say = lambda text, lang="hi": said.append((text, lang))
+    monkeypatch.setattr(voice, "Listener", FakeListener)
+    view._voice()
+    assert _wait(app, lambda: bool(view.session.history) and view.session.history[-1][1].kind == "answer", timeout=20)
+    assert view.session.history[-1][1].tool == "customer_balance"
+    assert said and "रमेश" in said[-1][0] and said[-1][1] == "hi"
+    typed = []
+    view.speaker.say = lambda text, lang="hi": typed.append(text)
+    view.entry.insert(0, "urea kitna bacha hai")
+    view.send()
+    assert _wait(app, lambda: not view._busy, timeout=20)
+    assert typed == []  # typed questions are not spoken back (Speak answers: when I speak)

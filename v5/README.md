@@ -237,10 +237,24 @@ How it works (details in `docs/AI_CHAT_DESIGN.md`):
   the model is worth installing. In the app the model runs in its own process (if this PC
   cannot run it, only the model switches off) and is trusted only when it agrees with one of
   System 1's three best guesses.
-* Check quality with `python tools/assistant/eval.py` (questions it never saw) and
+* **Voice** (optional, details in `docs/VOICE_DESIGN.md`): press **🎤** or **F2** and speak -
+  Hinglish, Hindi or English. The words appear in the box as they are heard; the question goes
+  1.2 s after you stop (tap the text to correct it). The answer is spoken back in Hindi.
+  Setup on the shop PC:
+  1. `pip install -U pip setuptools` then `pip install vosk sounddevice pywin32`;
+  2. download `vosk-model-small-hi-0.22.zip` (42 MB) from alphacephei.com/vosk/models and
+     install it with **Settings → Assistant → Install voice model…**;
+  3. for spoken answers, Windows needs its Hindi voice: Settings → Time & language → Speech →
+     Add voices → Hindi (often already there). **Speak answers**: when I speak / always / never.
+
+  The recogniser is limited to the shop's words (questions, numbers, the Hindi copies of
+  names and villages) - fast and accurate on a Celeron; when that hearing makes no sense the
+  full dictionary is tried. A USB or headset microphone helps more than anything else.
+* Check quality with `python tools/assistant/eval.py` (questions it never saw),
   `python tools/assistant/eval_names.py` (finds your real customers; read-only, prints only
-  totals). After changing `hth/assistant/data.py`, run
-  `python tools/assistant/build_kaggle_cell.py`.
+  totals) and `python tools/assistant/eval_voice.py` (spoken questions; `--recordings <folder>`
+  for real recordings, which stay on the PC). After changing `hth/assistant/data.py` or
+  `spoken.py`, run `python tools/assistant/build_kaggle_cell.py`.
 
 ## Business rules (unchanged from v3)
 
@@ -367,7 +381,7 @@ suggestions, WhatsApp reminders. Still open, roughly in order of value:
 run.py                      launcher
 tools/migrate_v3.py         v3 → v4 import (writes migration_report.txt)
 tools/check_data.py         data-quality findings for the live database
-tools/assistant/            eval.py, eval_names.py, the Kaggle training cell and its builder
+tools/assistant/            eval.py, eval_names.py, eval_voice.py, the Kaggle cell and its builder
 hth/
   config.py                 data folder resolution, Settings
   logging_setup.py          rotating file log in <data>/logs
@@ -382,6 +396,8 @@ hth/
                             insights (Needs attention), preferences, backup/restore,
                             slips (counter receipts), statements, reminders, search
   assistant/                chat assistant: normalize (language, periods), entities (names,
+                            ask-back), voice (Vosk, microphone), speech (spoken answers),
+                            spoken (Hinglish as heard),
                             ask-back), system1 (classifier), system2 (optional GGUF model),
                             tools (read-only answers), core (dialog), data (training corpus)
   migration/from_v3.py      legacy importer

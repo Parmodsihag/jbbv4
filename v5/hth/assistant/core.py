@@ -15,6 +15,7 @@ language.  System 2 (a small language model) is consulted only when System 1 is 
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import logging
 import time
@@ -30,6 +31,7 @@ log = logging.getLogger(__name__)
 
 CONFIDENT = 0.55  # System 1 probability needed to answer without asking
 FOLLOWUP_SECONDS = 120
+_MADE_SENSE = ("answer", "help", "greeting", "cancelled")
 _CANCEL = {norm.key(w) for w in "cancel chhodo chodo rehne rahne nahi no stop band bas".split()}
 _ALSO = {norm.key(w) for w in "aur and bhi also phir about".split()}  # "aur pichle mahine?"
 _PRONOUN = {norm.key(w) for w in "usi uska uski uske unka unki unke iska iski iske his her their same".split()}
@@ -100,6 +102,9 @@ class Assistant:
         self._classifier: IntentClassifier | None = classifier
         self.model_dir = model_dir
         self.system2 = system2  # object with .available() and .call(text) -> (intent, args) | None
+        self.voice_spellings: dict[str, str] = {}  # stored Hindi word -> how the recogniser writes it
+        self._dry = False  # trying a hearing out: no audit lines
+        self._s2_cache: dict[str, tuple[str, dict] | None] = {}
 
     # Lazy parts ------------------------------------------------------------------------------
     @property
@@ -115,8 +120,14 @@ class Assistant:
     def index(self) -> EntityIndex:
         if self._index is None or time.monotonic() - self._index_time > 60:  # new customers appear
             self._index = EntityIndex.from_db(self.db, self.today)
+            if self.voice_spellings:
+                self._index.add_spellings(self.voice_spellings)
             self._index_time = time.monotonic()
         return self._index
+
+    def set_voice_spellings(self, spellings: dict[str, str]) -> None:
+        self.voice_spellings = dict(spellings)
+        self._index = None
 
     def warm_up(self) -> None:
         """Train / load System 1 and index names (call from a background thread)."""
@@ -143,6 +154,28 @@ class Assistant:
         if reply.kind in ("answer", "help", "greeting", "decline", "error", "cancelled"):
             session.settle(reply)
         return reply
+
+    def ask_heard(self, heard: str, session: Session, alternative=None) -> tuple[str, Reply]:
+        """A spoken question.  ``heard`` is System 1 voice's (restricted) hearing; when it does not
+        make sense, ``alternative()`` - the open-vocabulary hearing of the same audio, computed only
+        then - is tried.  Returns the text that was used and its reply."""
+        if alternative is None or session.pending is not None:  # a short reply to a question asked
+            return heard, self.ask(heard, session)
+        if self._try(heard, session).kind in _MADE_SENSE:
+            return heard, self.ask(heard, session)
+        other = (alternative() or "").strip()
+        if other and other != heard and self._try(other, session).kind in _MADE_SENSE:
+            return other, self.ask(other, session)
+        return heard, self.ask(heard, session)
+
+    def _try(self, text: str, session: Session) -> Reply:
+        """What ``text`` would get, without touching ``session`` or the audit log."""
+        trial = Session(copy.deepcopy(session.pending), session.last_tool, dict(session.last_args), session.last_time)
+        self._dry = True
+        try:
+            return self.ask(text, trial)
+        finally:
+            self._dry = False
 
     # A reply to an open question ------------------------------------------------------------
     def _continue(self, text: str, session: Session) -> Reply | None:
@@ -209,7 +242,9 @@ class Assistant:
                 intent, prob = ranked[0]
         source = "system1"
         if prob < CONFIDENT and self.system2 is not None and self.system2.available():
-            call = self.system2.call(masked)  # only its choice of tool is used; slots stay ours
+            if masked not in self._s2_cache:  # a spoken question may be tried, then asked
+                self._s2_cache = {masked: self.system2.call(masked)} | dict(list(self._s2_cache.items())[:20])
+            call = self._s2_cache[masked]  # only its choice of tool is used; slots stay ours
             # it only settles a tie among System 1's own three best guesses; anything else is asked
             # back (measured on Kaggle: 11 wrong answers instead of 19 per 113 unsure questions)
             top = {i for i, _p in ranked[:3]}
@@ -395,6 +430,8 @@ class Assistant:
         )
 
     def _audit(self, intent, args) -> None:
+        if self._dry:
+            return
         try:
             from hth.domain.constants import AuditCode
             from hth.services.audit import AuditService
