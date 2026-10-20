@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +18,9 @@ CORE_KEYS = ["dashboard", "sales", "customers", "items", "karar", "reports", "us
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setenv("HTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("HTH_NO_UPDATE_CHECK", "1")  # never ask GitHub from a test
+    # the screens' tests do not unpack the 79 MB voice model (tests/test_updates.py covers that)
+    monkeypatch.setattr("hth.assistant.voice.bundled_dir", lambda: tmp_path / "no-bundled-voice")
     from hth.config import get_settings
     from hth.db.connection import Database
     from hth.db.schema import initialize
@@ -27,6 +31,9 @@ def app(tmp_path, monkeypatch):
     db = Database(settings.db_path)
     initialize(db)
     AuthService(db).ensure_default_users()
+    from hth.services.preferences import Preferences
+
+    Preferences(db).set_layout("classic")  # these walk the classic screens; tests/test_ui_modern.py the new ones
     if not os.environ.get("HTH_UI_FRESH"):
         from hth.ui.views.setup import mark_setup
 
@@ -531,3 +538,78 @@ def test_v5_assistant_chat_asks_back_and_answers(app):
     assert view.session.history[-1][1].tool == "customer_balance"
     view.new_chat()
     assert view.session.history == []
+
+
+def test_v5_assistant_voice_question_is_sent_and_spoken_back(app, monkeypatch):
+    from hth.assistant import voice
+
+    app.ctx.accounts.add_customer("RAMESH KUMAR", "ROHTAK", 500, "2026-01-01")
+    _login(app, "admin", "admin")
+    app.navigate("assistant")
+    view = app._views["assistant"]
+    assert _wait(app, lambda: view._ready and view._voice_state != "preparing", timeout=120)
+
+    class FakeVoice:
+        def available(self):
+            return True
+
+        def transcribe(self, pcm, grammar=None, rate=voice.RATE):
+            return voice.Heard("", [], False)
+
+        def unload(self):
+            pass
+
+    class FakeListener:
+        def __init__(self, model, grammar, on_event, **kw):
+            self.on_event, self.running = on_event, True
+
+        def start(self):
+            self.on_event(("partial", "रमेश का"))
+            self.on_event(("final", (voice.Heard("रमेश का बैलेंस बताओ", [("रमेश", 1.0)]), b"", voice.RATE)))
+            self.running = False
+
+        def stop(self):
+            self.running = False
+
+    said = []
+    view.voice = FakeVoice()
+    view.speaker.say = lambda text, lang="hi": said.append((text, lang))
+    monkeypatch.setattr(voice, "Listener", FakeListener)
+    monkeypatch.setattr(voice, "choose_device", lambda saved="": voice.InputDevice(2, "Microphone", False))
+    view._voice()
+    assert _wait(app, lambda: bool(view.session.history) and view.session.history[-1][1].kind == "answer", timeout=20)
+    assert view.session.history[-1][1].tool == "customer_balance"
+    assert said and "रमेश" in said[-1][0] and said[-1][1] == "hi"
+    typed = []
+    view.speaker.say = lambda text, lang="hi": typed.append(text)
+    view.entry.insert(0, "urea kitna bacha hai")
+    view.send()
+    assert _wait(app, lambda: not view._busy, timeout=20)
+    assert typed == []  # typed questions are not spoken back (Speak answers: when I speak)
+
+
+def test_v5_settings_updates_check_and_download(app, monkeypatch, tmp_path):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_updates import FakeGitHub, _app, _remote
+
+    from hth.services import updates
+
+    root = _app(tmp_path / "appcopy", "5.3.1")
+    gh = FakeGitHub(_remote(), repo="Parmodsihag/jbbv4", branch="v5", folder="v5")
+    real = updates.Updater
+    monkeypatch.setattr(updates, "Updater", lambda data_dir, source=None: real(data_dir, source, gh, root))
+    _login(app, "admin", "admin")
+    app.navigate("settings")
+    view = app._views["settings"]
+    _pump(app)
+    assert str(view.update_install.cget("state")) == "disabled"
+    view.check_updates()
+    assert _wait(app, lambda: view._update_found is not None, timeout=10)
+    assert view._update_found.version == "5.4.0" and str(view.update_install.cget("state")) == "normal"
+    monkeypatch.setattr("hth.ui.views.settings.confirm", lambda *a, **k: True)
+    view.install_update()
+    assert _wait(app, lambda: updates.pending(app.ctx.settings.data_dir) is not None, timeout=10)
+    assert _wait(app, lambda: str(view.update_restart.cget("state")) == "normal", timeout=10)
+    assert (root / "hth" / "core.py").read_bytes() == b"OLD = 1\n"  # nothing changes until the restart

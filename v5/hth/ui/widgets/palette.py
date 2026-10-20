@@ -12,9 +12,17 @@ from hth.ui import theme
 
 
 class SearchPalette(ctk.CTkToplevel):
-    def __init__(self, parent, service: SearchService, kinds: set[str], on_pick: Callable[[SearchHit], None]):
+    def __init__(
+        self,
+        parent,
+        service: SearchService,
+        kinds: set[str],
+        on_pick: Callable[[SearchHit], None],
+        on_ask: Callable[[str], None] | None = None,
+    ):
+        """``on_ask`` (the new layout): a last row hands the typed words to the Assistant."""
         super().__init__(parent)
-        self.service, self.kinds, self.on_pick = service, kinds, on_pick
+        self.service, self.kinds, self.on_pick, self.on_ask = service, kinds, on_pick, on_ask
         self.hits: list[SearchHit] = []
         self.overrideredirect(True)
         self.configure(fg_color=theme.color("surface"))
@@ -34,7 +42,11 @@ class SearchPalette(ctk.CTkToplevel):
         self.entry = ctk.CTkEntry(
             frame,
             textvariable=self.var,
-            placeholder_text="Search accounts, items, bills…  (Esc to close)",
+            placeholder_text=(
+                "Search accounts, items, bills - or ask a question…  (Esc to close)"
+                if on_ask
+                else "Search accounts, items, bills…  (Esc to close)"
+            ),
             font=theme.font(15),
             height=42,
         )
@@ -56,6 +68,7 @@ class SearchPalette(ctk.CTkToplevel):
         for w_ in (self.entry, self.listbox, self):
             w_.bind("<Escape>", lambda e: self.close())
         self.entry.bind("<Return>", lambda e: self.pick())
+        self.entry.bind("<Control-Return>", lambda e: self.ask())
         self.entry.bind("<Down>", lambda e: self._move(1))
         self.entry.bind("<Up>", lambda e: self._move(-1))
         self.listbox.bind("<Return>", lambda e: self.pick())
@@ -69,15 +82,30 @@ class SearchPalette(ctk.CTkToplevel):
         self.listbox.delete(0, tk.END)
         for h in self.hits:
             self.listbox.insert(tk.END, h.label)
-        if self.hits:
+        text = self.var.get().strip()
+        if self.on_ask and text:
+            from hth.i18n import tr
+
+            self.listbox.insert(tk.END, tr("Ask the assistant: “{}”").replace("{}", text))
+        if self.listbox.size():
             self.listbox.selection_set(0)
 
+    def _rows(self) -> int:
+        return len(self.hits) + (1 if self.on_ask and self.var.get().strip() else 0)
+
+    def ask(self) -> str:
+        text = self.var.get().strip()
+        if self.on_ask and text:
+            self.close()
+            self.on_ask(text)
+        return "break"
+
     def _move(self, delta: int) -> str:
-        if not self.hits:
+        if not self._rows():
             return "break"
         cur = self.listbox.curselection()
         idx = (cur[0] if cur else 0) + delta
-        idx = max(0, min(len(self.hits) - 1, idx))
+        idx = max(0, min(self._rows() - 1, idx))
         self.listbox.selection_clear(0, tk.END)
         self.listbox.selection_set(idx)
         self.listbox.see(idx)
@@ -85,6 +113,9 @@ class SearchPalette(ctk.CTkToplevel):
 
     def pick(self) -> None:
         cur = self.listbox.curselection()
+        if cur and cur[0] >= len(self.hits):  # the "Ask the assistant" row
+            self.ask()
+            return
         if not cur or not self.hits:
             return
         hit = self.hits[cur[0]]

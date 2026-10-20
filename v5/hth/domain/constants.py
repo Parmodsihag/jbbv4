@@ -51,6 +51,7 @@ class AuditCode(str, Enum):
     RATE = "11"
     FINANCE = "12"
     ASSISTANT = "13"
+    UPDATE = "14"
 
     @property
     def label(self) -> str:

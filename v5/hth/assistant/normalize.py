@@ -234,19 +234,19 @@ def _alt(words: str) -> str:
     return "(?:" + "|".join(re.escape(k) for k in keyed) + ")"
 
 
-_PAST = _alt("pichle|pichhle|pichla|pichhla|pichli|pichhli|last|previous|past|pichhe|pichhle wale|gaye|bite")
-_THIS = _alt("is|es|this|isi|current|iss|chalu|yeh|ye")
-_WEEK = _alt("hafte|hafta|haftay|week|saptah|sapta")
-_MONTH = _alt("mahine|mahina|mahne|month|maah|mahinay")
-_YEAR = _alt("saal|sal|year|varsh|varash|baras|financial year")
-_DAYS_WORD = _alt("din|dino|days|day|divas")
-_TODAY = _alt("aaj|aj|today|aajka|abhi tak")
-_YESTERDAY = _alt("kal|kl|yesterday|kalka|beete kal")
+_PAST = _alt("pichle|pichhle|pichla|pichhla|pichli|pichhli|last|previous|past|pichhe|pichhle wale|gaye|bite|privias")
+_THIS = _alt("is|es|this|isi|current|iss|chalu|yeh|ye|dis|karant")
+_WEEK = _alt("hafte|hafta|haftay|week|saptah|sapta|vik")
+_MONTH = _alt("mahine|mahina|mahne|month|maah|mahinay|manth")
+_YEAR = _alt("saal|sal|year|varsh|varash|baras|financial year|iar")
+_DAYS_WORD = _alt("din|dino|days|day|divas|dej|dinon")
+_TODAY = _alt("aaj|aj|today|aajka|abhi tak|tude")
+_YESTERDAY = _alt("kal|kl|yesterday|kalka|beete kal|iastarde")
 _DAY_BEFORE = _alt("parso|parson|day before yesterday")
-_DOM = _alt("tarikh|tareekh|tarik|tarikh ko|date|th|st|nd|rd")
+_DOM = _alt("tarikh|tareekh|tarik|tarikh ko|date|th|st|nd|rd|det")
 _MONTHS = {
-    1: ("january", "jan", "janvari", "janavari"),
-    2: ("february", "feb", "farvari", "pharvari", "febuari"),
+    1: ("january", "jan", "janvari", "janavari", "janvri"),
+    2: ("february", "feb", "farvari", "pharvari", "febuari", "farvri"),
     3: ("march", "mar", "marach"),
     4: ("april", "apr", "aprail", "aprel"),
     5: ("may", "mai"),
@@ -329,7 +329,7 @@ def _text(text: str) -> str:
 def find_period(text: str, today: dt.date | None = None) -> Period | None:
     """A period mentioned in the question, or None."""
     today = today or dt.date.today()
-    t = _text(text)
+    t = _with_digits(_text(text))
     checks = [
         (rf" {_PAST} (\d+) {_DAYS_WORD} ", lambda m: f"days:{m.group(1)}"),
         (rf" {_PAST} {_WEEK} ", lambda m: "last_week"),
@@ -376,7 +376,7 @@ def _explicit_date(t: str, today: dt.date) -> Period | None:
 
 def find_day(text: str, today: dt.date | None = None) -> Period | None:
     today = today or dt.date.today()
-    t = _text(text)
+    t = _with_digits(_text(text))
     if re.search(rf" {_TODAY} ", t):
         return resolve("today", today)
     if re.search(rf" {_DAY_BEFORE} ", t):
@@ -391,41 +391,35 @@ def find_day(text: str, today: dt.date | None = None) -> Period | None:
     return _explicit_date(t, today)
 
 
-_NUM_WORDS = {
-    "ek": 1,
-    "one": 1,
-    "do": 2,
-    "two": 2,
-    "teen": 3,
-    "tin": 3,
-    "three": 3,
-    "char": 4,
-    "chaar": 4,
-    "four": 4,
-    "panch": 5,
-    "paanch": 5,
-    "five": 5,
-    "che": 6,
-    "chhe": 6,
-    "six": 6,
-    "saat": 7,
-    "sat": 7,
-    "seven": 7,
-    "aath": 8,
-    "ath": 8,
-    "eight": 8,
-    "nau": 9,
-    "nine": 9,
-    "das": 10,
-    "ten": 10,
-    "bees": 20,
-    "bis": 20,
-    "twenty": 20,
-    "pachas": 50,
-    "pachaas": 50,
-    "sau": 100,
-    "hundred": 100,
+_NUMBERS = {
+    1: "ek one",
+    2: "do two",
+    3: "teen tin three thri",
+    4: "char chaar four",
+    5: "panch paanch five faiv",
+    6: "che chhe chhah six",
+    7: "saat sat seven sevan",
+    8: "aath ath eight",
+    9: "nau nine nain",
+    10: "das ten",
+    11: "gyarah eleven",
+    12: "barah twelve",
+    15: "pandrah fifteen",
+    20: "bees bis twenty tventi",
+    25: "pachchis pacchis twentyfive",
+    30: "tees tis thirty tharti",
+    40: "chalis chaalis forty forti",
+    50: "pachas pachaas fifty fifti",
+    60: "sixty",
+    70: "sattar seventy",
+    80: "assi eighty",
+    90: "nabbe ninety",
+    100: "sau hundred handred",  # no "saath" (60): it also means "with"
 }
+_NUM_KEYS = {key(w): n for n, words in _NUMBERS.items() for w in words.split()}
+_UNITS_EN = {key(w): n for n, w in enumerate("one two three four five six seven eight nine".split(), start=1)}
+# "bata do" is "tell me", not 2: "do" is a number only before something it counts
+_GRAMMAR_AFTER = {key(w) for w in "ji na naa please bhai yaar sir".split()}
 _MULT = {
     "hazar": 1_000,
     "hazaar": 1_000,
@@ -440,22 +434,52 @@ _MULT = {
 }
 
 
+_MULT_KEYS = {key(w): v for w, v in _MULT.items() if " " not in w}
+
+
+def _number_at(ks: list[str], i: int) -> tuple[float, int] | None:
+    """The number starting at key ``i`` and how many keys it used: 5, 50k, do hazaar, twenty five."""
+    tok = ks[i]
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)(k)?", tok)
+    if m:
+        val, used = float(m.group(1)) * (1000 if m.group(2) else 1), 1
+    elif tok in _NUM_KEYS:
+        if tok == "do" and (i + 1 >= len(ks) or ks[i + 1] in _GRAMMAR_AFTER):
+            return None
+        val, used = float(_NUM_KEYS[tok]), 1
+        if 20 <= val <= 90 and i + 1 < len(ks) and ks[i + 1] in _UNITS_EN:  # "twenty five"
+            val, used = val + _UNITS_EN[ks[i + 1]], 2
+    else:
+        return None
+    if i + used < len(ks) and ks[i + used] in _MULT_KEYS:
+        val *= _MULT_KEYS[ks[i + used]]
+        used += 1
+    return val, used
+
+
 def find_number(text: str) -> float | None:
-    """First quantity in the question: 5, 50k, 1.5 lakh, do hazaar, पचास हज़ार."""
-    toks = tokens(text.replace(",", ""))
-    for i, tok in enumerate(toks):
-        val = None
-        m = re.fullmatch(r"(\d+(?:\.\d+)?)(k)?", tok)
-        if m:
-            val = float(m.group(1)) * (1000 if m.group(2) else 1)
-        elif tok in _NUM_WORDS:
-            val = float(_NUM_WORDS[tok])
-        if val is None:
-            continue
-        if i + 1 < len(toks) and toks[i + 1] in _MULT:
-            val *= _MULT[toks[i + 1]]
-        return val
+    """First quantity in the question: 5, 50k, 1.5 lakh, do hazaar, पचास हज़ार, टॉप टेन."""
+    ks = [k for k in keys(text.replace(",", "")) if not k.startswith("<")]
+    for i in range(len(ks)):
+        found = _number_at(ks, i)
+        if found:
+            return found[0]
     return None
+
+
+def _with_digits(t: str) -> str:
+    """Padded keys with number words as digits, so "pichle tees din" reads like "pichle 30 din"."""
+    ks = t.split()
+    out, i = [], 0
+    while i < len(ks):
+        found = _number_at(ks, i) if ks[i] in _NUM_KEYS else None
+        if found and found[0] == int(found[0]):
+            out.append(str(int(found[0])))
+            i += found[1]
+        else:
+            out.append(ks[i])
+            i += 1
+    return " " + " ".join(out) + " "
 
 
 def find_category(text: str) -> str | None:

@@ -1,5 +1,5 @@
 """Write ``tools/assistant/kaggle_train_cell.py``: the training cell with the app's question
-generator and System 1 (``hth/assistant/data.py``, ``normalize.py``, ``system1.py``) embedded, so
+generator and System 1 (``hth/assistant/spoken.py``, ``data.py``, ``normalize.py``, ``system1.py``) embedded, so
 Kaggle trains on exactly the questions the app learns from and can compare the model with System 1.
 
     python tools/assistant/build_kaggle_cell.py
@@ -14,7 +14,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 TEMPLATE = HERE / "kaggle_cell_template.py"
-SOURCES = [ROOT / "hth" / "assistant" / name for name in ("data.py", "normalize.py", "system1.py")]
+SOURCES = [ROOT / "hth" / "assistant" / name for name in ("spoken.py", "data.py", "normalize.py", "system1.py")]
 CELL = HERE / "kaggle_train_cell.py"
 MARKER = "FILES = None  # @@FILES@@"
 

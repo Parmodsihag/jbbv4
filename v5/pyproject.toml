@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "high-table-holdings"
-version = "5.2.0"
+version = "5.5.0"
 description = "Accounting and inventory management for Jaat Beaj Bhander"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,10 @@ dependencies = [
     "docxtpl>=0.16",
     "pypdf>=4",
     "numpy>=1.24",  # the assistant's intent classifier (also needed by matplotlib)
+    "vosk>=0.3.45",  # asking by voice (the model ships in bundled/voice/)
+    "sounddevice>=0.4",
+    "pywin32>=304; sys_platform == 'win32'",  # spoken answers through Windows' voices
+    "setuptools<81",  # docxcompose (DOCX bills) still imports pkg_resources
 ]
 
 [project.optional-dependencies]
