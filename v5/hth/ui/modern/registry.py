@@ -37,6 +37,7 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
     ``ModuleSpec``s; each one lands in the area its spec names, or gets an area of its own."""
     from hth.ui.modern.areas.counter import CounterView
     from hth.ui.modern.areas.khata import KhataView
+    from hth.ui.modern.areas.today import TodayView
     from hth.ui.views.assistant import AssistantView
     from hth.ui.views.customers import CustomersView
     from hth.ui.views.dashboard import DashboardView
@@ -48,7 +49,12 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
     from hth.ui.views.users import UsersView
 
     areas = {
-        "today": Area("today", "Today", (Tab("dashboard", "Today", DashboardView, Permission.VIEW_DASHBOARD, "d"),)),
+        "today": Area(
+            "today",
+            "Today",
+            (Tab("dashboard", "Today", DashboardView, Permission.VIEW_DASHBOARD, "d"),),
+            factory=TodayView,  # rebuilt (v5.5): the agenda; the classic dashboard stays in Classic
+        ),
         "counter": Area(
             "counter",
             "Counter",
