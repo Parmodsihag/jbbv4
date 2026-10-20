@@ -106,8 +106,8 @@ def test_report_scope(cats, accounts, inventory, db):
     accounts.add_transaction(default.id, AS_OF.strftime("%Y-%m-%d"), "x", 10, "P", "2")
     assert default.id not in {r[0] for r in reports.customer_activity("2026-08-01", "2026-08-31")}
     assert default.id in {r[0] for r in reports.customer_activity("2026-08-01", "2026-08-31", categories=None)}
-    flow_all = sum(m.debit for m in reports.monthly_flow(1, categories=None))
-    flow_scoped = sum(m.debit for m in reports.monthly_flow(1))
+    flow_all = sum(m.debit for m in reports.monthly_flow(1, categories=None, today=AS_OF))
+    flow_scoped = sum(m.debit for m in reports.monthly_flow(1, today=AS_OF))
     assert flow_all - flow_scoped == 10
     # explicit empty scope = nothing
     assert reports.interest_summary(AS_OF, categories=set()) == []

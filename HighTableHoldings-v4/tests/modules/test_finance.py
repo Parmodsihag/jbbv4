@@ -109,6 +109,8 @@ def test_recurring(fin):
     assert fin.post_due("admin", dt.date(2026, 8, 5)) == 1
     assert fin.post_due("admin", dt.date(2026, 8, 5)) == 0  # idempotent
     assert [e.date for e in fin.entries(kind="expense")] == ["2026-06-05", "2026-07-05", "2026-08-05"]
+    # last 4 calendar months as of October = Jul..Oct (June is out)
+    assert [m for m, *_ in fin.monthly_expenses(4, today=dt.date(2026, 10, 15))] == ["2026-07", "2026-08"]
     assert fin.balance(cash.id) == -15000
     fin.set_recurring_active(rent.id, False)
     assert fin.due_recurring(dt.date(2026, 12, 31)) == []
@@ -148,5 +150,5 @@ def test_cash_flow_and_pnl(fin, accounts, inventory, sales, db):
     assert (pl.crop_revenue, pl.crop_cost, pl.crop_margin) == (1560, 1200, 360)
     assert pl.gross_margin == 560 and pl.other_income == 100 and pl.total_expenses == 800
     assert pl.net_profit == 560 + 100 - 800
-    assert fin.monthly_expenses(1)[-1] == ("2026-08", 800, 100)
+    assert fin.monthly_expenses(1, today=dt.date(2026, 8, 31)) == [("2026-08", 800, 100)]
     assert fin.expenses_by_head("2026-08-01", "2026-08-31") == [("RENT", 500), ("SALARIES", 300)]

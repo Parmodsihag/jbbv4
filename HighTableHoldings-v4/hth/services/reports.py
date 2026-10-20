@@ -103,11 +103,14 @@ class ReportsService:
             return f" AND {alias}.category IN ('')", []
         return f" AND {alias}.category IN ({','.join('?' * len(cats))})", cats
 
-    def monthly_flow(self, months: int = 12, categories="settings") -> list[MonthFlow]:
-        """Debits vs credits per month (settlement rows excluded), oldest first.
+    def monthly_flow(self, months: int = 12, categories="settings", today: dt.date | None = None) -> list[MonthFlow]:
+        """Debits vs credits per month (settlement rows excluded) for the last ``months`` calendar
+        months up to ``today``'s, oldest first.
 
         ``categories``: 'settings' (default), None for all, or an explicit set."""
-        first = (dt.date.today().replace(day=1) - dt.timedelta(days=31 * (months - 1))).replace(day=1)
+        today = today or dt.date.today()
+        y, m = divmod(today.year * 12 + today.month - months, 12)  # first of the earliest month
+        first = dt.date(y, m + 1, 1)
         cats = self.categories.customer_report_categories() if categories == "settings" else categories
         clause, params = self._cat_clause("c", cats)
         rows = self.db.fetchall(

@@ -42,8 +42,11 @@ def test_reports(accounts, inventory, sales, krar, reports):
     assert aging["0-30 days"][0] == 1 and aging["180+ days"][0] == 0
     assert reports.top_debtors(5, summaries)[0].id == a.id
 
-    flow = {m.month: m for m in reports.monthly_flow(12)}
+    flow = {m.month: m for m in reports.monthly_flow(12, today=TODAY)}
     assert flow["2026-08"].debit == 20 and flow["2026-08"].credit == 200
+    # calendar months, not 31-day steps: 7 months back from August stops at February
+    assert [m.month for m in reports.monthly_flow(7, today=TODAY)] == ["2026-08"]
+    assert [m.month for m in reports.monthly_flow(8, today=TODAY)] == ["2026-01", "2026-08"]
     inter = {row[0]: row for row in reports.interest_summary(TODAY)}
     assert inter[a.id][2] == 1020 and inter[a.id][3] > 0 and inter[b.id][2] == -200
     assert reports.item_movement("2026-08-01", "2026-08-31")[0][3] == 2
