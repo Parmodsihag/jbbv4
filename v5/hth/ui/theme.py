@@ -47,6 +47,15 @@ PALETTE: dict[str, tuple[str, str]] = {
     "chart3": ("#B45309", "#FBBF24"),
     "chart4": ("#B91C1C", "#F87171"),
     "chart5": ("#6D28D9", "#A78BFA"),
+    # new layout (v5.5) - added, never changed above, so the classic screens look the same
+    "accent_soft": ("#E0F2F7", "#123A47"),
+    "line": ("#E4E7EC", "#334155"),
+    "owe": ("#B42318", "#F97066"),  # money due to the shop
+    "owe_soft": ("#FEF3F2", "#3A1518"),
+    "weowe": ("#067647", "#47CD89"),  # money in / due from the shop
+    "weowe_soft": ("#ECFDF3", "#0E2E21"),
+    "warn_soft": ("#FFFAEB", "#3A2A0A"),
+    "topbar": ("#FFFFFF", "#111A2E"),
 }
 
 

@@ -341,3 +341,37 @@ def test_text_scale_preference(db):
     assert Preferences(db).text_scale() == 1.3
     with pytest.raises(ValueError):
         prefs.set_text_scale(2.0)
+
+
+def test_layout_preference_is_shop_wide_and_defaults_to_classic(db):
+    prefs = Preferences(db)
+    assert prefs.layout() == "classic"
+    prefs.set_layout("new")
+    assert Preferences(db).layout() == "new"  # stored for the whole shop
+    with pytest.raises(ValueError):
+        prefs.set_layout("sideways")
+
+
+def test_new_layout_areas_hold_every_classic_screen():
+    from hth.modules import discover
+    from hth.ui.modern import registry
+
+    areas = registry.build_areas(discover())
+    tabs = {t.key: a.key for a in areas for t in a.tabs}
+    classic = {"dashboard", "assistant", "sales", "customers", "items", "karar", "reports", "users", "settings"}
+    assert classic | {"bills", "crops", "finance"} <= set(tabs)
+    assert tabs["karar"] == "khata" and tabs["bills"] == "money" and tabs["crops"] == "stock"
+    money = next(a for a in areas if a.key == "money")
+    assert [t.key for t in money.tabs] == ["finance", "bills"]  # the cash book first
+    assert registry.resolve(areas, "karar", {"customer_id": 3}) == ("khata", {"customer_id": 3, "tab": "karar"})
+    assert registry.resolve(areas, "money", {}) == ("money", {})
+    assert registry.resolve(areas, "nowhere", {}) == (None, {})
+    # an employee's Settings has no Users tab, and they land at the Counter
+    from hth.domain.models import User
+    from hth.services.permissions import has_permission
+
+    emp = User(id=2, username="e", full_name="", role="employee", is_active=True)
+    mine = registry.allowed(areas, lambda p: p is None or has_permission(emp, p))
+    assert [t.key for t in next(a for a in mine if a.key == "settings").tabs] == ["settings"]
+    assert registry.home(mine, is_admin=False) == "counter"
+    assert registry.home(mine, is_admin=True) == "today"

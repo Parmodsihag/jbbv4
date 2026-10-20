@@ -169,17 +169,20 @@ def tr_cell(value) -> str:
 _MONTHS = ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"]
 _MONTHS_SHORT = ["जन", "फ़र", "मार्च", "अप्रै", "मई", "जून", "जुला", "अग", "सित", "अक्टू", "नव", "दिस"]
 _DAYS = ["सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार"]
+_DAYS_SHORT = ["सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि", "रवि"]
 
 
 def date_text(day, fmt: str) -> str:
     """``day.strftime(fmt)`` with Hindi month and weekday names when Hindi is on
-    (``%A %B %b`` only; digits stay as they are)."""
+    (``%A %a %B %b`` only; digits stay as they are)."""
     if _lang != "hi":
         return day.strftime(fmt)
     # Windows strftime rejects non-ASCII formats: format with markers, then put the names in
-    out = day.strftime(fmt.replace("%A", "\x01").replace("%B", "\x02").replace("%b", "\x03"))
+    marked = fmt.replace("%A", "\x01").replace("%B", "\x02").replace("%b", "\x03").replace("%a", "\x04")
+    out = day.strftime(marked)
     return (
         out.replace("\x01", _DAYS[day.weekday()])
+        .replace("\x04", _DAYS_SHORT[day.weekday()])
         .replace("\x02", _MONTHS[day.month - 1])
         .replace("\x03", _MONTHS_SHORT[day.month - 1])
     )

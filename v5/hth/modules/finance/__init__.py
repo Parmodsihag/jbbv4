@@ -34,4 +34,6 @@ MODULE = ModuleSpec(
     permission=Permission.FINANCE,
     shortcut="f",
     order=30,
+    area="money",
+    tab="Cash book",
 )

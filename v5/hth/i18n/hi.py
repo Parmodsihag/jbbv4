@@ -469,4 +469,21 @@ HI.update({
     "cash": "नकद", "bank": "बैंक", "upi": "UPI", "other": "अन्य",
     "High Table Holdings {}": "हाई टेबल होल्डिंग्स {}", "@{} · {}": "@{} · {}",
 })
+
+# The new layout (v5.5) and the switch between layouts.
+HI.update({
+    "Counter": "काउंटर", "Khata": "खाता", "Money": "पैसा", "Collections": "वसूली", "Ask": "पूछें",
+    "GST bills": "GST बिल", "Crops & rates": "फसल और भाव", "{} › {}": "{} › {}",
+    "Search a customer or item — or ask": "ग्राहक या सामान खोजें — या पूछें",
+    "Layout": "लेआउट", "Classic": "पुराना", "New": "नया", "Switch layout": "लेआउट बदलें",
+    "Classic: menu on the left, as before.  New: six areas across the top.  For the whole shop.":
+        "पुराना: बाईं ओर मेन्यू, पहले जैसा।  नया: ऊपर छह हिस्से।  पूरी दुकान के लिए।",
+    "Switch the whole shop to the new layout?": "पूरी दुकान को नए लेआउट पर ले जाएँ?",
+    "Switch the whole shop to the classic layout?": "पूरी दुकान को पुराने लेआउट पर ले जाएँ?",
+    "Every screen is rebuilt: anything typed but not saved is lost. You can switch back at any time in Settings.":
+        "हर स्क्रीन फिर से बनेगी: जो लिखा है पर सेव नहीं हुआ, वह मिट जाएगा। सेटिंग्स में कभी भी वापस बदल सकते हैं।",
+    "New layout on": "नया लेआउट चालू", "Classic layout on": "पुराना लेआउट चालू",
+    "Lock screen": "स्क्रीन लॉक करें", "Light theme": "हल्की थीम", "Dark theme": "गहरी थीम",
+    "Switch to the classic layout": "पुराने लेआउट पर जाएँ",
+})
 # fmt: on
