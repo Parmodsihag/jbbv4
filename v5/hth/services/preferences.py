@@ -13,6 +13,7 @@ DEFAULTS = {
     "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
     "ui.text_scale": "1.0",  # 0.9 | 1.0 | 1.15 | 1.3
     "ui.language": "en",  # en | hi
+    "ui.layout": "classic",  # classic (sidebar, v5.4) | new (six areas across the top, v5.5)
     "assistant.speak": "voice",  # speak answers: voice (when the question was spoken) | always | never
     "assistant.mic": "",  # the recording device's name; "" = automatic (never a loopback like Stereo Mix)
     "update.repo": "Parmodsihag/jbbv4",  # where updates come from (GitHub owner/name)
@@ -23,6 +24,7 @@ DEFAULTS = {
 }
 SPEAK_MODES = ("voice", "always", "never")
 LANGUAGES = ("en", "hi")
+LAYOUTS = ("classic", "new")
 TEXT_SCALES = (0.9, 1.0, 1.15, 1.3)
 THEMES = ("light", "dark", "system")
 
@@ -104,6 +106,16 @@ class Preferences:
         if lang not in LANGUAGES:
             raise ValueError("Language must be en or hi.")
         self.settings.set("ui.language", lang)
+
+    def layout(self) -> str:
+        """Which set of screens the whole shop uses: the classic sidebar or the new layout."""
+        v = self.settings.get("ui.layout").lower()
+        return v if v in LAYOUTS else "classic"
+
+    def set_layout(self, layout: str) -> None:
+        if layout not in LAYOUTS:
+            raise ValueError("Layout must be classic or new.")
+        self.settings.set("ui.layout", layout)
 
     def sidebar_compact(self) -> bool:
         return self.settings.get_bool("ui.sidebar_compact")

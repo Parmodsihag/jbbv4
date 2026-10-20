@@ -27,6 +27,9 @@ class ModuleSpec:
     permission: Permission | None = None
     shortcut: str | None = None  # Alt+<letter>
     order: int = 100
+    # where the new layout (v5.5) shows the module: an area key and the tab's name there
+    area: str | None = None
+    tab: str | None = None
 
 
 def discover() -> list[ModuleSpec]:

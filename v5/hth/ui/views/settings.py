@@ -57,6 +57,25 @@ class SettingsView(BaseView):
 
         row = ctk.CTkFrame(look, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=6)
+        ctk.CTkLabel(row, text="Layout", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        self.layout_choice = ctk.CTkSegmentedButton(
+            row,
+            values=["Classic", "New"],
+            command=self._set_layout,
+            font=theme.font(13),
+            state="normal" if can_edit else "disabled",
+        )
+        self.layout_choice.set("New" if prefs.layout() == "new" else "Classic")
+        self.layout_choice.pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text="   Classic: menu on the left, as before.  New: six areas across the top.  For the whole shop.",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
+        ).pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=6)
         ctk.CTkLabel(row, text="Theme", font=theme.font(13), width=120, anchor="w").pack(side="left")
         self.mode = ctk.CTkSegmentedButton(
             row, values=["Light", "Dark", "System"], command=self._set_mode, font=theme.font(13)
@@ -420,6 +439,13 @@ class SettingsView(BaseView):
         self.ctx.audit.log("09", f"language -> {lang}", self.ctx.username)
         # after the button callback returns: the rebuild destroys this screen
         self.ctx.app.after(20, lambda: self.ctx.app.apply_language(lang))
+
+    def _set_layout(self, value: str) -> None:
+        layout = "new" if value == "New" else "classic"
+        if layout != self.ctx.prefs.layout():
+            self.ctx.app.ask_layout(layout)
+        # until the rebuild (or after "No"), the button shows the layout actually in use
+        self.layout_choice.set("New" if self.ctx.prefs.layout() == "new" else "Classic")
 
     # Hindi names -----------------------------------------------------------------------
     def _build_hindi(self, scroll) -> None:
@@ -869,7 +895,7 @@ class SettingsView(BaseView):
         )
         if not path:
             return
-        view = getattr(self.ctx.app, "_views", {}).get("assistant")
+        view = self.ctx.app.find_view("assistant")
         if getattr(view, "voice", None) is not None:
             view.voice.unload()
         self.ctx.toast("Installing the voice model…")
@@ -885,7 +911,7 @@ class SettingsView(BaseView):
         self.run_async(lambda: voice.install_zip(Path(path), self.ctx.settings.data_dir), done, self._model_failed)
 
     def _assistant_model(self):
-        view = getattr(self.ctx.app, "_views", {}).get("assistant")
+        view = self.ctx.app.find_view("assistant")
         return getattr(view, "system2", None)
 
     def install_model(self) -> None:
