@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from collections.abc import Callable, Sequence
 
 import customtkinter as ctk
@@ -137,3 +138,54 @@ def style_option(menu: ctk.CTkOptionMenu) -> ctk.CTkOptionMenu:
         text_color=theme.color("text"),
     )
     return menu
+
+
+def dropdown_menu(widget) -> tk.Menu:
+    """A right-click / drop-down menu in the theme's colours."""
+    return tk.Menu(
+        widget,
+        tearoff=0,
+        bg=theme.current("surface"),
+        fg=theme.current("text"),
+        activebackground=theme.current("accent_soft"),
+        activeforeground=theme.current("text"),
+        font=theme.table_font(),
+    )
+
+
+def popup(menu: tk.Menu, button) -> None:
+    try:
+        menu.tk_popup(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height() + 2)
+    finally:
+        menu.grab_release()
+
+
+# Buttons: primary (teal), outline (teal edge) or plain (white with a hairline).
+def button(master, text: str, command, primary: bool = False, outline: bool = False, **kw) -> ctk.CTkButton:
+    if primary:
+        colors = {
+            "fg_color": theme.color("accent"),
+            "hover_color": theme.color("accent_hover"),
+            "text_color": theme.color("accent_text"),
+        }
+    elif outline:
+        colors = {
+            "fg_color": "transparent",
+            "border_width": 1,
+            "border_color": theme.color("accent"),
+            "hover_color": theme.color("accent_soft"),
+            "text_color": theme.color("accent"),
+        }
+    else:
+        colors = {
+            "fg_color": theme.color("surface"),
+            "border_width": 1,
+            "border_color": theme.color("line"),
+            "hover_color": theme.color("surface_hover"),
+            "text_color": theme.color("text"),
+        }
+    kw.setdefault("height", 36)
+    kw.setdefault("width", 10)
+    return ctk.CTkButton(
+        master, text=text, command=command, corner_radius=9, font=theme.font(13, "bold"), **colors, **kw
+    )
