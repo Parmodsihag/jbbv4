@@ -1,5 +1,43 @@
 # Changelog
 
+## 5.5.0 — 2026-10-20
+
+### A new layout - and the classic one is still there
+- **New** (the default): six areas across the top - **Today · Counter · Khata · Stock · Money ·
+  Reports** - with Settings behind the gear and an **Ask** box on every screen. **Classic** is the
+  sidebar layout of v5.4, unchanged. **Settings → Appearance & language → Layout** switches the
+  whole shop (admin), and back; the user menu (top right) has "Switch to the classic layout".
+  A shop that chose Classic keeps it after updating.
+- Every Alt-letter still works (Alt+S Counter, Alt+A Khata, Alt+K Collections, Alt+I Stock,
+  Alt+C Crops & rates, Alt+F Money, Alt+B GST bills, Alt+R Reports, Alt+T Settings, Alt+U
+  Users, Alt+H Ask). Admins start on Today, everyone else at the Counter.
+- **Counter**: four tabs in shop words - Sale, Purchase, Payment in, Payment out (Alt+1-4) -
+  instead of Debit / Credit; the small print under Save still says what is booked (P/M, tag).
+  The customer's balance, promise, last payment and last entries beside the form; "+ New
+  customer" without leaving the entry; **Paid now** inside a sale (cash / UPI / bank) saved
+  together with it; Payment in can mark the open promise kept and settle the account;
+  Ctrl+Shift+Enter never saves a sale.
+- **Khata**: customer list and one page per customer (balance split into entered + interest,
+  promise, Sale / Payment in / Promise / WhatsApp / Statement, entries by period, promises,
+  crop trades, details); admin corrections on an entry's right-click. Deleting an entry says
+  the new balance and that stock does not change. **Collections** replaces Karar: late / today /
+  next 7 days / later / owe-but-no-promise, with the reminder (editable) and what happened.
+- **Today**: what needs doing - promises due with WhatsApp / Got payment / New date, stock
+  running out, housekeeping (Back up now, monthly expenses to post, data problems) - today's
+  figures, who owes by age, latest entries.
+- **Stock**: item list with Running low / Out / Expiring / Not selling and an item page (lasts
+  about N days, movements); Crops & rates inside. **Money**: account tiles, due expenses, the
+  cash book with + Expense / Income / Transfer, this month so far; GST bills and Reports &
+  setup inside. **Reports**: one searchable catalogue of all 34 reports with pinned favourites.
+  **Settings**: sections instead of one long scroll; Users is a section.
+
+### Under the hood
+- Business rules, numbers and the database are unchanged. One service method was added:
+  `SalesService.record_sale_with_payment` (the sale's lines and the payment in one
+  transaction, undone together).
+- The new layout lives in `hth/ui/modern/`; modules name their place in it (`ModuleSpec.area`,
+  `tab`, `reports`) and core still never imports them.
+
 ## 5.4.0 — 2026-10-21
 
 ### Updates from inside the app

@@ -31,6 +31,9 @@ def app(tmp_path, monkeypatch):
     db = Database(settings.db_path)
     initialize(db)
     AuthService(db).ensure_default_users()
+    from hth.services.preferences import Preferences
+
+    Preferences(db).set_layout("classic")  # these walk the classic screens; tests/test_ui_modern.py the new ones
     if not os.environ.get("HTH_UI_FRESH"):
         from hth.ui.views.setup import mark_setup
 

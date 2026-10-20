@@ -201,7 +201,7 @@ def test_employee_lands_on_counter_and_sees_no_admin_screens(app):
     assert app._active == "counter"
     app.navigate("settings")
     _pump(app)
-    assert [t.key for t in _area(app, "settings").area.tabs] == ["settings"]
+    assert "Users" not in [name for name, *_rest in _area(app, "settings").sections]
 
 
 def test_switch_both_ways_while_signed_in(app):
@@ -472,3 +472,42 @@ def test_reports_for_an_employee(app):
     _pump(app)
     ids = {e.id for e in app._views["reports"].entries}
     assert "r:audit" not in ids and "m:finance:Profit & loss" not in ids and "r:collections" in ids
+
+
+def test_settings_sections(app):
+    _login(app, "admin", "admin")
+    app.navigate("users")
+    _pump(app)
+    area = app._views["settings"]
+    assert area.current_section == "Users" and app.find_view("users") is area.users
+    app.navigate("settings")  # the gear
+    _pump(app)
+    assert area.current_section == "Appearance & language"
+    assert app.find_view("settings") is area and area.layout_choice.get() == "New"
+    for name in area.section_frames:
+        area.show_section(name)
+        _pump(app, 5)
+    assert area.current_section == "About"
+
+
+def test_ask_bar_hands_questions_to_the_assistant(app):
+    _login(app, "admin", "admin")
+    app.open_search()
+    _pump(app)
+    palette = app._palette
+    assert palette.on_ask is not None
+    palette.var.set("urea kitna bacha")
+    _pump(app)
+    last = palette.listbox.get(palette.listbox.size() - 1)
+    assert "urea kitna bacha" in last
+    palette.ask()
+    _pump(app, 40)
+    assert app._active == "ask"
+    assert "<F2>" in app._shell_keys
+    # the classic layout keeps its plain search palette
+    app.apply_layout("classic")
+    _pump(app)
+    app.open_search()
+    _pump(app)
+    assert app._palette.on_ask is None
+    app._palette.close()

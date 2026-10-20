@@ -819,4 +819,17 @@ HI.update({
     '☆  Pin': '☆  पिन करें',
     'No report matches - try another word.': 'कोई रिपोर्ट नहीं मिली - दूसरा शब्द आज़माएँ।',
 })
+
+# The new layout's Settings and Ask bar (v5.5).
+HI.update({
+    'Ask the assistant: “{}”': 'सहायक से पूछें: “{}”',
+    'Search accounts, items, bills - or ask a question…  (Esc to close)': 'खाते, सामान, बिल खोजें - या सवाल पूछें…  (Esc से बंद)',
+    'Appearance & language': 'रूप-रंग और भाषा',
+    'My password': 'मेरा पासवर्ड',
+    'Backup & data': 'बैकअप और डेटा',
+    'Reminder messages': 'याद-संदेश',
+    'Assistant & voice': 'सहायक और आवाज़',
+    'Lock screen   Ctrl+L': 'स्क्रीन लॉक   Ctrl+L',
+    'ADMIN': 'एडमिन',
+})
 # fmt: on

@@ -30,8 +30,19 @@ class SettingsView(BaseView):
     def build(self) -> None:
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         scroll.pack(fill="both", expand=True)
-        s = self.ctx.settings
+        self._build_look(scroll)
+        self._build_account(scroll)
+        self._build_data(scroll)
+        self._build_hindi(scroll)
+        self._build_assistant(scroll)
+        self._build_company(scroll)
+        self._build_reminders(scroll)
+        self._build_categories(scroll)
+        self._build_updates(scroll)
+        self._build_about(scroll)
 
+    # Cards - one method each, so the new layout can show them as sections ------------------
+    def _build_look(self, scroll) -> None:
         look = Card(scroll, "Appearance & security")
         look.pack(fill="x", padx=4, pady=4)
         prefs = self.ctx.prefs
@@ -136,6 +147,7 @@ class SettingsView(BaseView):
             text_color=theme.color("muted"),
         ).pack(side="left")
 
+    def _build_account(self, scroll) -> None:
         acct = Card(scroll, "My account")
         acct.pack(fill="x", padx=4, pady=4)
         row = ctk.CTkFrame(acct, fg_color="transparent")
@@ -146,6 +158,8 @@ class SettingsView(BaseView):
         )
         secondary_button(row, "Change my password", self.change_password, width=170).pack(side="left")
 
+    def _build_data(self, scroll) -> None:
+        s = self.ctx.settings
         data = Card(scroll, "Data")
         data.pack(fill="x", padx=4, pady=4)
         body = ctk.CTkFrame(data, fg_color="transparent")
@@ -208,14 +222,7 @@ class SettingsView(BaseView):
             anchor="w",
         ).pack(fill="x", pady=(8, 0))
 
-        self._build_hindi(scroll)
-        self._build_assistant(scroll)
-        self._build_company(scroll)
-        self._build_reminders(scroll)
-        self._build_categories(scroll)
-
-        self._build_updates(scroll)
-
+    def _build_about(self, scroll) -> None:
         about = Card(scroll, "About")
         about.pack(fill="x", padx=4, pady=4)
         ctk.CTkLabel(

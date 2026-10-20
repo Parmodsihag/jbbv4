@@ -102,12 +102,21 @@ class AssistantView(BaseView):
         )
 
     # Life cycle ----------------------------------------------------------------------------
-    def on_show(self, question: str | None = None, **kwargs) -> None:
+    def on_show(self, question: str | None = None, listen: bool = False, **kwargs) -> None:
         if self.assistant is None:
             self._start()
         self.entry.focus_set()
         if question:
             self.ask(question)
+        elif listen:
+            self.listen()
+
+    def listen(self) -> None:
+        """Start listening now, or as soon as the voice is ready (F2 / 🎤 from anywhere)."""
+        if self._voice_state == "ready" or (self._ready and self._voice_state == "missing"):
+            self._voice()  # listens - or says why it cannot (no voice model, no microphone)
+        else:
+            self._listen_when_ready = True
 
     def _start(self) -> None:
         data_dir = self.ctx.settings.data_dir
@@ -166,6 +175,9 @@ class AssistantView(BaseView):
         if self.assistant is not None and spellings:
             self.assistant.set_voice_spellings(spellings)
         self._show_status()
+        if getattr(self, "_listen_when_ready", False):
+            self._listen_when_ready = False
+            self._voice()
 
     def _voice(self) -> None:
         if self._listener is not None and self._listener.running:
