@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import tkinter as tk
 from collections.abc import Callable, Sequence
 
@@ -10,6 +11,26 @@ import customtkinter as ctk
 from hth import i18n
 from hth.ui import theme
 from hth.ui.format import money
+
+
+class Freshness:
+    """Does a screen still show the books as they are?  Yes while nothing has been written
+    since it was filled and it is the same day (interest and "days late" move with the date).
+    Coming back to an unchanged screen then costs nothing instead of a full reload."""
+
+    def __init__(self, db):
+        self.db = db
+        self._filled_at: tuple[int, dt.date] | None = None
+
+    def stale(self) -> bool:
+        return self._filled_at != (self.db.version, dt.date.today())
+
+    def filling(self) -> None:
+        """Call as a reload starts: a write that lands while it reads still counts as new."""
+        self._filled_at = (self.db.version, dt.date.today())
+
+    def forget(self) -> None:
+        self._filled_at = None
 
 
 def segmented(master, values: Sequence[str], command: Callable[[str], None] | None = None, height: int = 34):

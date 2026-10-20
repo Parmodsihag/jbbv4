@@ -1,19 +1,24 @@
-"""Matplotlib figures embedded in a themed card."""
+"""Matplotlib figures embedded in a themed card.
+
+matplotlib takes most of a second to load, and only the classic dashboard draws charts:
+it is loaded the first time a chart is drawn, not when the program starts.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import customtkinter as ctk
-import matplotlib
 
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
+from hth.ui import theme
 
-from hth.ui import theme  # noqa: E402
+if TYPE_CHECKING:
+    import matplotlib.axes
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.figure import Figure
 
-Builder = Callable[[Figure, "matplotlib.axes.Axes"], None]
+Builder = Callable[["Figure", "matplotlib.axes.Axes"], None]
 
 
 class ChartCard(ctk.CTkFrame):
@@ -50,6 +55,12 @@ class ChartCard(ctk.CTkFrame):
             self.empty_label = None
 
     def _render(self) -> None:
+        import matplotlib
+
+        matplotlib.use("TkAgg")
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.figure import Figure
+
         self._dispose()
         bg = theme.current("surface")
         fig = Figure(figsize=(4, 2.4), dpi=100, facecolor=bg)

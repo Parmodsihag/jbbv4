@@ -21,8 +21,8 @@ from hth.services.permissions import Permission
 from hth.ui import theme
 from hth.ui.format import qty as fmt_qty
 from hth.ui.modern import item_actions
+from hth.ui.modern.widgets import Freshness, card, pill, rupees, segmented, set_pill
 from hth.ui.modern.widgets import button as _button
-from hth.ui.modern.widgets import card, pill, rupees, segmented, set_pill
 from hth.ui.modern.widgets import dropdown_menu as _menu
 from hth.ui.modern.widgets import popup as _popup
 from hth.ui.views.base import BaseView
@@ -116,6 +116,7 @@ class ItemsPage(ctk.CTkFrame):
         self.view, self.ctx = view, view.ctx
         self._all: list[tuple] = []
         self._pending = None
+        self.fresh = Freshness(self.ctx.db)
         self.grid_columnconfigure(0, weight=0, minsize=420)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -157,15 +158,19 @@ class ItemsPage(ctk.CTkFrame):
         self.page.restyle()
 
     def on_show(self, item_id: int | None = None, **kwargs) -> None:
-        self.reload()
-        if item_id is not None:
+        stale = self.fresh.stale()
+        if stale:
+            self.reload()
+        shown = self.page.item.id if self.page.item is not None else None
+        if item_id is not None and (stale or item_id != shown):
             self.open(item_id)
-        elif self.page.item is not None:
-            self.open(self.page.item.id)
+        elif item_id is None and shown is not None and stale:
+            self.open(shown)
         self.after(80, self.search.focus_set)
 
     def reload(self) -> None:
         self.table.set_footer("Loading stock…")
+        self.fresh.filling()
         ctx = self.ctx
 
         def work():
@@ -176,7 +181,11 @@ class ItemsPage(ctk.CTkFrame):
             last_sale = ctx.inventory.last_sale_dates()
             return ctx.inventory.summaries(), reorder, last_sale, soon, dead_from
 
-        self.view.run_async(work, self._loaded)
+        self.view.run_async(work, self._loaded, self._load_failed)
+
+    def _load_failed(self, exc: Exception) -> None:
+        self.fresh.forget()
+        self.view._default_fail(exc)
 
     def _loaded(self, data) -> None:
         summaries, reorder, last_sale, soon, dead_from = data

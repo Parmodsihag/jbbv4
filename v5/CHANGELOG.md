@@ -1,5 +1,31 @@
 # Changelog
 
+## 5.6.0 — 2026-10-20
+
+### Faster - same books, same numbers
+Measured on a copy-sized shop (663 accounts, 6,200 entries, 76 items): every interest and
+balance figure is identical, checked bit for bit.
+- **Start-up**: Excel (openpyxl), charts (matplotlib) and the Assistant's numpy now load the
+  first time they are needed, not when the program opens - loading the program takes a
+  quarter of the time it did.
+- **Counter**: picking a customer and switching Sale / Purchase / Payment in / Payment out is
+  two to three times faster. The two side columns keep their width, so a long name no longer
+  re-lays-out the whole screen; the screen no longer pushes the status line off the bottom.
+- **Coming back to a screen** reads nothing when nothing has been written since and it is the
+  same day: Khata, Collections, Stock, Money, Today and the Counter only reload when something
+  changed. After a change Today redraws only the cards whose figures moved.
+- **Collections**: Late / Today / Next 7 days … switch instantly (the lists come from the last
+  load instead of recomputing every balance).
+- **Reports**: typing in the search box is about five times faster - the catalogue is built
+  once and searching shows and hides its rows.
+- **Balances and interest** for the whole shop are computed about twice as fast (dates are read
+  once, the financial-year periods of each date once).
+- **Database**: each part of the program keeps its connection open instead of opening one for
+  every small question - opening one cost 300 times the question itself on Windows.
+- **Today**: "default password still in use" no longer re-hashes admin/admin and emp1/emp1 on
+  every visit (only after a password changes). **Settings** lists the microphones in the
+  background instead of making the screen wait for the sound system.
+
 ## 5.5.0 — 2026-10-20
 
 ### A new layout - and the classic one is still there

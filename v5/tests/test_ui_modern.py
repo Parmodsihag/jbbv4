@@ -35,6 +35,7 @@ def app(tmp_path, monkeypatch):
     application.update()
     yield application
     application.destroy()
+    db.close()  # connections stay open between units of work: let the temp folder go
 
 
 def _pump(app, n=30):
@@ -511,3 +512,81 @@ def test_ask_bar_hands_questions_to_the_assistant(app):
     _pump(app)
     assert app._palette.on_ask is None
     app._palette.close()
+
+
+# Speed (v5.6) ------------------------------------------------------------------------
+def test_coming_back_to_an_unchanged_screen_reads_nothing(app, monkeypatch):
+    from hth.services.sales import money_flow_handler
+    from hth.ui.modern.areas.khata import CustomersPage
+    from hth.ui.modern.areas.today import TodayView
+
+    ctx = app.ctx
+    ctx.accounts.add_customer("RAM", "X", 500, "2026-01-01")
+    money_flow_handler(ctx.db)  # the cash book's defaults, made at start-up by the program itself
+    _login(app, "admin", "admin")
+    loads = []
+    for cls, name in ((TodayView, "today"), (CustomersPage, "khata")):
+        real = cls.reload
+        monkeypatch.setattr(cls, "reload", lambda self, real=real, name=name: (loads.append(name), real(self)))
+    for key in ("customers", "today", "customers", "today"):
+        app.navigate(key)
+        _pump(app)
+    assert loads == ["khata"]  # Today was filled at sign-in, Khata on its first visit; nothing written since
+    shyam = ctx.accounts.add_customer("SHYAM", "Y", 100, "2026-01-01")
+    app.navigate("today")
+    _pump(app)
+    app.navigate("customers")
+    page = app._views["khata"].customers
+    assert _wait(app, lambda: any(r[3] == shyam.id for r in page._all))
+    assert loads == ["khata", "today", "khata"]
+
+
+def test_reports_search_shows_and_hides_the_rows_it_built(app):
+    _login(app, "admin", "admin")
+    app.navigate("reports")
+    _pump(app)
+    area = app._views["reports"]
+    frames = [r.frame for g in area._groups for r in g.rows]
+    area.search.insert(0, "aging")
+    area._render()
+    _pump(app)
+    assert [e.id for e in area._shown] == ["r:aging"]
+    shown = [r.entry.id for g in area._groups if g.card.winfo_manager() for r in g.rows if r.frame.winfo_manager()]
+    assert shown == ["r:aging"]
+    area.search.delete(0, "end")
+    area._render()
+    _pump(app)
+    assert [r.frame for g in area._groups for r in g.rows] == frames  # the same widgets: nothing rebuilt
+    assert all(g.card.winfo_manager() and all(r.frame.winfo_manager() for r in g.rows) for g in area._groups)
+    area.search.insert(0, "no such report")
+    area._render()
+    _pump(app)
+    assert area._shown == [] and area.no_match.winfo_manager()
+    area.search.delete(0, "end")
+    area.toggle_pin("r:aging")
+    star = next(r.star for g in area._groups for r in g.rows if r.entry.id == "r:aging")
+    assert star.cget("text") == "★" and "r:aging" in area.pins()
+
+
+def test_collections_chips_switch_without_reading_again(app, monkeypatch):
+    import datetime as dt
+
+    ctx = app.ctx
+    late = ctx.accounts.add_customer("LATE", "X", 500, "2026-01-01", tag="2")
+    due = ctx.accounts.add_customer("DUE", "X", 300, "2026-01-01", tag="2")
+    ctx.krar.add_or_update(late.id, "2026-01-05")
+    ctx.krar.add_or_update(due.id, dt.date.today().isoformat())
+    _login(app, "admin", "admin")
+    app.navigate("karar")
+    _pump(app)
+    col = app._views["khata"].collections
+    reads = []
+    real = ctx.reports.collections
+    monkeypatch.setattr(ctx.reports, "collections", lambda *a, **k: reads.append(1) or real(*a, **k))
+    col.bucket._buttons_dict["Today"].invoke()  # a click on the chip
+    _pump(app)
+    assert col.bucket.get() == "Today" and [r[7] for r in col.table.rows] == [due.id]
+    col.bucket._buttons_dict["Late"].invoke()
+    _pump(app)
+    assert [r[7] for r in col.table.rows] == [late.id]
+    assert reads == []

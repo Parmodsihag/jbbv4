@@ -62,7 +62,10 @@ def _run(settings) -> int:
 
     from hth.ui.app import run_app
 
-    run_app(db, settings)
+    try:
+        run_app(db, settings)
+    finally:
+        db.close()  # the last connection out writes the WAL back into hth.db
     return 0
 
 

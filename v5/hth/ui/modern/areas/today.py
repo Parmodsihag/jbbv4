@@ -19,7 +19,7 @@ from hth.services.sales import money_flow_handler
 from hth.ui import theme
 from hth.ui.format import compact_money
 from hth.ui.modern import actions
-from hth.ui.modern.widgets import card, pill, rupees
+from hth.ui.modern.widgets import Freshness, card, pill, rupees
 from hth.ui.views.base import BaseView
 
 PROMISE_ROWS = 4
@@ -116,6 +116,8 @@ class TodayView(BaseView):
 
     def build(self) -> None:
         self._data: dict | None = None
+        self.fresh = Freshness(self.ctx.db)
+        self._drawn: dict[str, object] = {}  # card -> what it was last drawn with
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", pady=(0, 12))
         titles = ctk.CTkFrame(head, fg_color="transparent")
@@ -161,7 +163,8 @@ class TodayView(BaseView):
 
     # Loading ---------------------------------------------------------------------------
     def on_show(self, **kwargs) -> None:
-        self.reload()
+        if self.fresh.stale():
+            self.reload()
 
     def on_day_change(self) -> None:
         super().on_day_change()
@@ -169,6 +172,7 @@ class TodayView(BaseView):
 
     def reload(self) -> None:
         self.headline.configure(text=self.headline.cget("text") or "Loading…")
+        self.fresh.filling()
         ctx = self.ctx
 
         def work() -> dict:
@@ -206,7 +210,11 @@ class TodayView(BaseView):
                 "backup": ctx.backup.last_backup(),
             }
 
-        self.run_async(work, self._render)
+        self.run_async(work, self._render, self._load_failed)
+
+    def _load_failed(self, exc: Exception) -> None:
+        self.fresh.forget()  # try again next time
+        self._default_fail(exc)
 
     def _render(self, data: dict) -> None:
         self._data = data
@@ -222,10 +230,20 @@ class TodayView(BaseView):
         self._render_owed(data)
         self._render_latest(data)
 
+    def _changed(self, card: str, shown) -> bool:
+        """Is ``shown`` - what a card displays - different from what it was drawn with?
+        Coming back after a sale then redraws the cards that changed, not all six."""
+        if self._drawn.get(card) == shown:
+            return False
+        self._drawn[card] = shown
+        return True
+
     def _render_promises(self, data: dict) -> int:
         c = self.promises
-        c.clear()
         rows = data["promises"]
+        if not self._changed("promises", rows):
+            return len(rows)
+        c.clear()
         c.set_count(len(rows))
         c.note.configure(text=f"{rupees(sum(max(b, 0) for _e, _d, b in rows))} at stake" if rows else "")
         if not rows:
@@ -284,9 +302,11 @@ class TodayView(BaseView):
 
     def _render_stock(self, data: dict) -> int:
         c = self.stock
-        c.clear()
         lines = data["reorder"]
         expiring = [i for i in data["insights"] if "expiring" in i.title]
+        if not self._changed("stock", (lines, expiring)):
+            return len(lines) + len(expiring)
+        c.clear()
         c.set_count(len(lines) + len(expiring))
         if not lines and not expiring:
             c.empty("Nothing is about to run out.")
@@ -321,12 +341,14 @@ class TodayView(BaseView):
 
     def _render_house(self, data: dict) -> int:
         c = self.house
-        c.clear()
         items = [
             i for i in data["insights"] if not any(s in i.title for s in _SHOWN_ELSEWHERE) and "expiring" not in i.title
         ]
         recurring = data["recurring"]
         count = len(items) + (1 if recurring else 0)
+        if not self._changed("house", (items, recurring)):
+            return count
+        c.clear()
         c.set_count(count)
         for ins in items:
             r = c.row()
@@ -384,29 +406,31 @@ class TodayView(BaseView):
 
     def _render_today(self, data: dict) -> None:
         c = self.today_card
+        d, money, k = data["day"], data["money"], data["kpis"]
+        if not self._changed("today", (d, money, k.receivable, k.payable)):
+            return
         c.clear()
         c.set_count(None)
         grid = ctk.CTkFrame(c.body, fg_color="transparent")
         grid.pack(fill="x")
         grid.grid_columnconfigure((0, 1), weight=1, uniform="t")
-        d = data["day"]
         self._tile(grid, 0, 0, f"Gave · {d.entries} entries", rupees(d.debit))
         self._tile(grid, 0, 1, "Got", rupees(d.credit), "weowe")
-        money = data["money"]
         if money:
             first, rest = money[0], money[1:]
             self._tile(grid, 1, 0, i18n.tr_cell(first[0].name), rupees(first[1]))
             self._tile(grid, 1, 1, "Other accounts", rupees(sum(b for _a, b in rest)))
         else:
-            k = data["kpis"]
             self._tile(grid, 1, 0, "Receivable", rupees(k.receivable), "owe")
             self._tile(grid, 1, 1, "Payable", rupees(k.payable), "weowe")
 
     def _render_owed(self, data: dict) -> None:
         c = self.owed_card
+        k, aging = data["kpis"], data["aging"]
+        if not self._changed("owed", (k.receivable, k.debtors, aging)):
+            return
         c.clear()
         c.set_count(None)
-        k = data["kpis"]
         top = ctk.CTkFrame(c.body, fg_color="transparent")
         top.pack(fill="x", pady=(0, 4))
         ctk.CTkLabel(
@@ -415,7 +439,6 @@ class TodayView(BaseView):
         ctk.CTkLabel(top, text=f"{k.debtors} accounts", font=theme.font(12), text_color=theme.color("muted")).pack(
             side="left", padx=10, pady=(8, 0)
         )
-        aging = data["aging"]
         biggest = max((a for _l, _n, a in aging), default=0) or 1
         colors = ("accent", "accent", "warning", "owe")
         for i, (label, _n, amount) in enumerate(aging):
@@ -436,9 +459,11 @@ class TodayView(BaseView):
 
     def _render_latest(self, data: dict) -> None:
         c = self.latest
+        rows = data["latest"]
+        if not self._changed("latest", rows):
+            return
         c.clear()
         c.set_count(None)
-        rows = data["latest"]
         if not rows:
             c.empty("Nothing entered yet today.")
             return
