@@ -401,6 +401,50 @@ class SalesService:
                     raise ValidationError(f"Line {n} ({line.item_name}): {exc}") from exc
         return results
 
+    def record_sale_with_payment(
+        self,
+        date: str,
+        customer_id: int,
+        lines: list[SaleLine],
+        tag: str | int,
+        username: str,
+        paid: str | float = 0,
+        paid_as: str = "CASH",
+        money_account_id: int | None = None,
+    ) -> list[SaleResult]:
+        """A sale and what was paid for it at the counter, as one unit.
+
+        The lines are debited exactly as :meth:`record_lines` does with kind 'P'; ``paid``
+        (when more than zero) is then credited as a money entry named ``paid_as`` (CASH,
+        UPI …) into ``money_account_id`` - the same entry a separate receipt would make.  If
+        anything is invalid nothing is written, and :meth:`undo` reverses the whole list."""
+        try:
+            paid_f = _validate_amount(paid or 0)
+        except ValidationError as exc:
+            raise ValidationError(f"Paid now: {exc}") from exc
+        if str(tag).strip()[:1] == Tag.SETTLE.value:
+            raise ValidationError("A sale with a payment cannot also settle the account.")
+        with self.db.connect():
+            results = self.record_lines("P", date, customer_id, lines, tag, username)
+            if paid_f > 0:
+                try:
+                    results.append(
+                        self.record(
+                            "M",
+                            date,
+                            customer_id,
+                            (paid_as or "CASH").strip().upper(),
+                            1,
+                            paid_f,
+                            tag,
+                            username,
+                            money_account_id=money_account_id,
+                        )
+                    )
+                except ValidationError as exc:
+                    raise ValidationError(f"Paid now: {exc}") from exc
+        return results
+
     # Undo ----------------------------------------------------------------------------
     def undo(self, results: list[SaleResult], username: str) -> int:
         """Reverse entries made by :meth:`record` / :meth:`record_lines`: their ledger rows,

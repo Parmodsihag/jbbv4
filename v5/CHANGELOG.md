@@ -1,5 +1,116 @@
 # Changelog
 
+## 5.5.0 — 2026-10-20
+
+### A new layout - and the classic one is still there
+- **New** (the default): six areas across the top - **Today · Counter · Khata · Stock · Money ·
+  Reports** - with Settings behind the gear and an **Ask** box on every screen. **Classic** is the
+  sidebar layout of v5.4, unchanged. **Settings → Appearance & language → Layout** switches the
+  whole shop (admin), and back; the user menu (top right) has "Switch to the classic layout".
+  A shop that chose Classic keeps it after updating.
+- Every Alt-letter still works (Alt+S Counter, Alt+A Khata, Alt+K Collections, Alt+I Stock,
+  Alt+C Crops & rates, Alt+F Money, Alt+B GST bills, Alt+R Reports, Alt+T Settings, Alt+U
+  Users, Alt+H Ask). Admins start on Today, everyone else at the Counter.
+- **Counter**: four tabs in shop words - Sale, Purchase, Payment in, Payment out (Alt+1-4) -
+  instead of Debit / Credit; the small print under Save still says what is booked (P/M, tag).
+  The customer's balance, promise, last payment and last entries beside the form; "+ New
+  customer" without leaving the entry; **Paid now** inside a sale (cash / UPI / bank) saved
+  together with it; Payment in can mark the open promise kept and settle the account;
+  Ctrl+Shift+Enter never saves a sale.
+- **Khata**: customer list and one page per customer (balance split into entered + interest,
+  promise, Sale / Payment in / Promise / WhatsApp / Statement, entries by period, promises,
+  crop trades, details); admin corrections on an entry's right-click. Deleting an entry says
+  the new balance and that stock does not change. **Collections** replaces Karar: late / today /
+  next 7 days / later / owe-but-no-promise, with the reminder (editable) and what happened.
+- **Today**: what needs doing - promises due with WhatsApp / Got payment / New date, stock
+  running out, housekeeping (Back up now, monthly expenses to post, data problems) - today's
+  figures, who owes by age, latest entries.
+- **Stock**: item list with Running low / Out / Expiring / Not selling and an item page (lasts
+  about N days, movements); Crops & rates inside. **Money**: account tiles, due expenses, the
+  cash book with + Expense / Income / Transfer, this month so far; GST bills and Reports &
+  setup inside. **Reports**: one searchable catalogue of all 34 reports with pinned favourites.
+  **Settings**: sections instead of one long scroll; Users is a section.
+
+### Under the hood
+- Business rules, numbers and the database are unchanged. One service method was added:
+  `SalesService.record_sale_with_payment` (the sale's lines and the payment in one
+  transaction, undone together).
+- The new layout lives in `hth/ui/modern/`; modules name their place in it (`ModuleSpec.area`,
+  `tab`, `reports`) and core still never imports them.
+
+## 5.4.0 — 2026-10-21
+
+### Updates from inside the app
+- **Settings → Updates → Check for updates**: looks at the app's GitHub branch
+  (github.com/Parmodsihag/jbbv4, branch `v5`, folder `v5` - changeable there), says which
+  version is there and what is new (from the CHANGELOG), and **Install update** downloads it.
+  Admins also get a message after signing in when a new version appears (checked once a day).
+- Only the files that changed are downloaded, each checked against GitHub's own hash; a
+  broken download changes nothing. New Python packages in `requirements.txt` are installed
+  while downloading. The app itself changes only at the next start (**Restart now**): before
+  it loads, every file about to be replaced is saved to `<data>/updates/before-….zip`, the new
+  files go in, and if anything fails the old files are put back. **Undo last update** restores
+  that backup the same way. The data folder is never touched (a new version's database
+  changes are made by its migrations, which back the database up first). Every step is in
+  the audit log (code 14) and `<data>/logs/updates.log`.
+- A developer copy (a git checkout) is updated with `git pull --ff-only`, and only when it has
+  no uncommitted changes. A packaged build cannot update itself.
+
+### The voice model ships with the app
+- `bundled/voice/vosk-model-small-hi-0.22.zip` (42 MB, Apache 2.0) is part of the app; it is
+  unpacked into `<data>/voice` the first time the Assistant opens - nothing to download or
+  install. An update that brings a different model zip installs it on the next start; a model
+  installed by hand in Settings is kept.
+- `vosk`, `sounddevice` and `pywin32` are now regular requirements; `setuptools` stays below 81
+  (the DOCX bills need its `pkg_resources`).
+
+## 5.3.1 — 2026-10-21
+
+### Fixed
+- Asking by voice always said "कुछ सुनाई नहीं दिया" on PCs where Windows' default recording
+  device is **Stereo Mix** (it records what the speakers play, not the microphone). The
+  assistant now picks the real microphone itself and never a loopback device; the choice can
+  be changed in **Settings → Assistant → Microphone**, with **Test microphone** (records three
+  seconds, shows how loud it was and what was heard).
+- Speech is noticed by loudness as well as by words: a question in words outside the shop's
+  vocabulary is heard again with the full dictionary instead of being dropped as silence.
+- Clear messages: "no sound is coming from <microphone>" (wrong device or muted) versus "I
+  heard a voice but could not make out the words". A microphone that refuses 16 kHz is
+  recorded at its own rate.
+
+## 5.3.0 — 2026-10-21
+
+### Voice - ask by speaking, hear the answer
+- **🎤 on the Assistant screen (or F2)**: speak the question - mostly Hinglish, *"Ramesh ka
+  last month ka balance batao"* - the words appear in the box as they are heard and the
+  question goes by itself 1.2 s after you stop (tap the text to correct it first). Answers to
+  spoken questions are **spoken back in Hindi** with Windows' own Hindi voice (Hemant /
+  Kalpana): amounts in whole rupees in Hindi words, dates as "दस अक्टूबर", the ask-back
+  choices as "रमेश सैनी, भिवानी वाले या रमेश कुमार, रोहतक वाले" - answer "रोहतक वाले" by voice.
+- **System 1 voice**: Vosk's small Hindi model (`vosk-model-small-hi-0.22`, 42 MB, offline, no
+  AVX needed), limited to the shop's own words - the question words of the corpus, numbers,
+  and the Hindi copies of every customer, village and item name. When that hearing does not
+  make sense, the same audio is heard again with the model's full 179,000-word dictionary.
+  Names the dictionary lacks get a *voice spelling* once (spoken by the Windows voice, heard
+  by the model). Install it from **Settings → Assistant → Install voice model…** (the zip from
+  alphacephei.com/vosk/models); needs `pip install vosk sounddevice pywin32`.
+- Measured on 150 held-out spoken questions (Windows voices, made-up names): answered right
+  **99.3 %** clean and **95.3 %** with shop-like noise (15 dB), ~0.1-0.2 s per question on a
+  laptop; the open vocabulary alone gets 96.7 % / 84.0 % at ~1 s. Real recordings will be
+  lower - `tools/assistant/eval_voice.py --recordings <folder>` measures them on the PC.
+- **Spoken Hinglish understood**: a fourth corpus style (`sp`) - the Hinglish templates as a
+  Hindi recogniser writes them ("लास्ट मंथ का बैलेंस", English words in Devanagari, numbers as
+  words) - from a hand-made table of 300 words (`hth/assistant/spoken.py`). System 1 on unseen
+  phrasings: 96.0 % overall (spoken 96.5 %, Hindi 99.2 %, Hinglish 95.9 %, English 94.5 %).
+- Settings → Assistant → **Speak answers**: when I speak (default) / always / never.
+
+### Fixed
+- Periods in Devanagari loanwords were not read: "लास्ट मंथ", "इस मंथ", "इस वीक", "टुडे",
+  "लास्ट ईयर" fell back to a default period. Number words now count in periods too:
+  "पिछले तीस दिन", "pichle do din", "लास्ट थर्टी डेज़", "पंद्रह तारीख".
+- "sabse bade bakayedar **bata do**" showed the top 2: "do" (tell me) was read as the number
+  2. It is a number only before what it counts ("do bakayedar", "do hazaar").
+
 ## 5.2.0 — 2026-10-20
 
 ### Assistant (सहायक) - ask about the shop in plain words

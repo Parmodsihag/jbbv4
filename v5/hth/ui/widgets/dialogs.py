@@ -175,6 +175,14 @@ SALES_SHORTCUTS = [
     ("Ctrl+Z", "Undo the last entry (15 minutes)"),
     ("Alt+Up / Alt+Down", "Next / previous day in a date field"),
 ]
+COUNTER_SHORTCUTS = [  # the new layout's Counter (v5.5)
+    ("Alt+1 … Alt+4", "Sale · Purchase · Payment in · Payment out"),
+    ("Enter", "Quantity → rate → add line"),
+    ("Ctrl+Enter", "Save the open tab"),
+    ("Ctrl+Shift+Enter", "Save a Purchase or a Payment in"),
+    ("Ctrl+Z", "Undo the last entry (15 minutes)"),
+    ("Alt+Up / Alt+Down", "Next / previous day in a date field"),
+]
 TABLE_SHORTCUTS = [
     ("Double-click / Enter", "Open the row (ledger, item, bill)"),
     ("Ctrl+C", "Copy the selected row"),
@@ -184,7 +192,13 @@ TABLE_SHORTCUTS = [
 
 
 class ShortcutSheet(ctk.CTkToplevel):
-    def __init__(self, parent, screens: list[tuple[str, str]]):
+    def __init__(
+        self,
+        parent,
+        screens: list[tuple[str, str]],
+        entry_title: str = "Sales",
+        entry_keys: list[tuple[str, str]] | None = None,
+    ):
         super().__init__(parent)
         self.title("Keyboard shortcuts")
         self.resizable(False, False)
@@ -196,7 +210,7 @@ class ShortcutSheet(ctk.CTkToplevel):
         groups = [
             ("Screens", screens),
             ("Everywhere", GENERAL_SHORTCUTS),
-            ("Sales", SALES_SHORTCUTS),
+            (entry_title, entry_keys or SALES_SHORTCUTS),
             ("Tables", TABLE_SHORTCUTS),
         ]
         for col, chunk in enumerate((groups[:2], groups[2:])):

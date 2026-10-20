@@ -79,6 +79,32 @@ again, close v5, delete or rename `C:\JBB\v5\hth.db`, and start v5. With `HTH_DA
 set nothing is copied. Before any schema upgrade of an existing database v5 also writes
 `backups/hth_pre_migration_v<N>_<time>.db`.
 
+### Updating the app
+
+**Settings → Updates → Check for updates** looks at the app on GitHub
+(`github.com/Parmodsihag/jbbv4`, branch `v5`, folder `v5` - both changeable there) and shows the
+new version and what is new. **Install update** downloads only the files that changed, checks
+each against GitHub's hash, and installs any new Python packages; **Restart now** finishes it.
+At that start, before the app loads, every file being replaced is saved to
+`<data>/updates/before-<version>….zip`, the new files are put in, and if anything goes wrong the
+old ones come back. **Undo last update** puts the previous files back the same way. The data
+folder is never changed by an update. Admins see a message after signing in when a new version
+is on GitHub (checked at most once a day).
+
+To publish an update: raise `__version__` in `hth/__init__.py`, add a `## <version>` section to
+`CHANGELOG.md`, commit and push to the `v5` branch. A git checkout (like the developer's PC)
+updates itself with `git pull --ff-only` instead; a packaged build cannot update itself.
+
+### Two layouts: New and Classic
+
+v5.5 has two sets of screens over the same books. **New** (the default) puts six areas across
+the top - **Today** (the admin's home: what needs doing), **Counter** (every entry: Sale,
+Purchase, Payment in, Payment out), **Khata** (customers and Collections), **Stock**, **Money**
+and **Reports** - with Settings behind the gear and an Ask box (search, or a question for the
+Assistant; F2 speaks) on every screen. **Classic** is the sidebar layout described under
+*Screens* below. **Settings → Appearance & language → Layout** (admin) switches the whole shop;
+the user menu has "Switch to the classic layout". Every Alt-letter works in both.
+
 ---
 
 ## Roles and permissions
@@ -104,6 +130,8 @@ button checks it, and every write records the acting user in the audit log.
 ---
 
 ## Screens
+
+The classic layout's screens (the new layout's areas hold the same things - see *Two layouts*).
 
 * **Dashboard** – clickable tiles (receivable, payable, today's debits / credits, overdue
   krar, stock value, cash & bank, accounts) in lakh / crore with the exact figure beneath;
@@ -237,10 +265,28 @@ How it works (details in `docs/AI_CHAT_DESIGN.md`):
   the model is worth installing. In the app the model runs in its own process (if this PC
   cannot run it, only the model switches off) and is trusted only when it agrees with one of
   System 1's three best guesses.
-* Check quality with `python tools/assistant/eval.py` (questions it never saw) and
+* **Voice** (details in `docs/VOICE_DESIGN.md`): press **🎤** or **F2** and speak -
+  Hinglish, Hindi or English. The words appear in the box as they are heard; the question goes
+  1.2 s after you stop (tap the text to correct it). The answer is spoken back in Hindi.
+  Setup on the shop PC:
+  1. `python -m pip install --upgrade pip` then `pip install -r requirements.txt` (a new pip
+     builds vosk's `srt` helper by itself; setuptools stays below 81 - the bills need it);
+  2. nothing to download: the Hindi voice model (`bundled/voice/vosk-model-small-hi-0.22.zip`,
+     42 MB) ships with the app and is unpacked the first time the Assistant opens. Another
+     Vosk model can still be installed with **Settings → Assistant → Install voice model…**;
+  3. for spoken answers, Windows needs its Hindi voice: Settings → Time & language → Speech →
+     Add voices → Hindi (often already there). **Speak answers**: when I speak / always / never.
+  4. **Settings → Assistant → Microphone**: "Automatic" picks the real microphone (never "Stereo
+     Mix", which records the speakers); **Test microphone** shows the loudness and what it heard.
+
+  The recogniser is limited to the shop's words (questions, numbers, the Hindi copies of
+  names and villages) - fast and accurate on a Celeron; when that hearing makes no sense the
+  full dictionary is tried. A USB or headset microphone helps more than anything else.
+* Check quality with `python tools/assistant/eval.py` (questions it never saw),
   `python tools/assistant/eval_names.py` (finds your real customers; read-only, prints only
-  totals). After changing `hth/assistant/data.py`, run
-  `python tools/assistant/build_kaggle_cell.py`.
+  totals) and `python tools/assistant/eval_voice.py` (spoken questions; `--recordings <folder>`
+  for real recordings, which stay on the PC). After changing `hth/assistant/data.py` or
+  `spoken.py`, run `python tools/assistant/build_kaggle_cell.py`.
 
 ## Business rules (unchanged from v3)
 
@@ -367,7 +413,7 @@ suggestions, WhatsApp reminders. Still open, roughly in order of value:
 run.py                      launcher
 tools/migrate_v3.py         v3 → v4 import (writes migration_report.txt)
 tools/check_data.py         data-quality findings for the live database
-tools/assistant/            eval.py, eval_names.py, the Kaggle training cell and its builder
+tools/assistant/            eval.py, eval_names.py, eval_voice.py, the Kaggle cell and its builder
 hth/
   config.py                 data folder resolution, Settings
   logging_setup.py          rotating file log in <data>/logs
@@ -382,10 +428,14 @@ hth/
                             insights (Needs attention), preferences, backup/restore,
                             slips (counter receipts), statements, reminders, search
   assistant/                chat assistant: normalize (language, periods), entities (names,
+                            ask-back), voice (Vosk, microphone), speech (spoken answers),
+                            spoken (Hinglish as heard),
                             ask-back), system1 (classifier), system2 (optional GGUF model),
                             tools (read-only answers), core (dialog), data (training corpus)
   migration/from_v3.py      legacy importer
   ui/                       customtkinter app: theme, icons, widgets, views, app shell
+  ui/modern/                the new layout (v5.5): shell, area registry, widgets, actions,
+                            areas/ (today, counter, khata, stock, money, reports, settings)
   modules/                  optional feature modules (bills, crop trading) – see README there
 tests/                      pytest suite (business rules, migration, opt-in UI walkthrough)
 ```
@@ -407,7 +457,7 @@ Packaging for the shop PC (single folder, no Python needed):
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconfirm --windowed --name HighTableHoldings run.py
+pyinstaller --noconfirm --windowed --name HighTableHoldings --add-data "bundled;bundled" --collect-all vosk run.py
 ```
 
 ## Bills module

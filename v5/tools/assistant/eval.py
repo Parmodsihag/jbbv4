@@ -74,7 +74,7 @@ def main() -> int:
 
 
 def _styles(style: dict) -> str:
-    names = {"en": "English", "hi": "Hindi", "hl": "Hinglish"}
+    names = {"en": "English", "hi": "Hindi", "hl": "Hinglish", "sp": "spoken"}
     return " · ".join(f"{names.get(s, s)} {v:.3f}" for s, v in sorted(style.items()))
 
 

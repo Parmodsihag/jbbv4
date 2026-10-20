@@ -18,6 +18,7 @@ import numpy as np
 
 from hth.assistant import data
 from hth.assistant.normalize import key, keys
+from hth.assistant.spoken import SPOKEN
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,12 @@ for concept, words in {
     for w in words.split():
         for part in w.split("_"):
             _CONCEPTS.setdefault(key(part) if not part.startswith("<") else part, concept)
+# ... and so is the way a Hindi recogniser writes it: "balance" -> बैलेंस -> "bailens"
+for _w, _dev in SPOKEN.items():
+    _c = _CONCEPTS.get(key(_w))
+    if _c:
+        for _k in keys(_dev):
+            _CONCEPTS.setdefault(_k, _c)
 
 
 # Typos in a concept word ("prfoit", "sotck", "nubmer") still name the concept: one letter
