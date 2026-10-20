@@ -37,6 +37,7 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
     ``ModuleSpec``s; each one lands in the area its spec names, or gets an area of its own."""
     from hth.ui.modern.areas.counter import CounterView
     from hth.ui.modern.areas.khata import KhataView
+    from hth.ui.modern.areas.stock import StockView
     from hth.ui.modern.areas.today import TodayView
     from hth.ui.views.assistant import AssistantView
     from hth.ui.views.customers import CustomersView
@@ -70,7 +71,12 @@ def build_areas(modules: Iterable = ()) -> list[Area]:
             ),
             factory=KhataView,  # rebuilt (v5.5): Customers + Collections
         ),
-        "stock": Area("stock", "Stock", (Tab("items", "Items", ItemsView, Permission.ADD_ITEM, "i"),)),
+        "stock": Area(
+            "stock",
+            "Stock",
+            (Tab("items", "Items", ItemsView, Permission.ADD_ITEM, "i"),),
+            factory=StockView,  # rebuilt (v5.5): items; the crop module's screen is hosted inside
+        ),
         "money": Area("money", "Money", ()),
         "reports": Area("reports", "Reports", (Tab("reports", "Reports", ReportsView, Permission.VIEW_REPORTS, "r"),)),
     }

@@ -356,3 +356,43 @@ def test_today_lists_what_needs_doing(app):
     # the backup row can be done from here
     today.backup_now()
     assert ctx.backup.last_backup() is not None
+
+
+def test_stock_items_page_and_crops_hosted(app):
+    ctx = app.ctx
+    c = ctx.accounts.add_customer("RAM", "X", 0, "2026-01-01")
+    dap = ctx.inventory.add_item("DAP", 1290, 1350, unit="BAG", opening_quantity=10)
+    ctx.inventory.add_item("ZINC", 80, 95, unit="BAG", opening_quantity=0)
+    ctx.sales.record("P", dt_today(), c.id, dap.display, 8, 1350, "1", "admin", item_id=dap.id, unit="BAG")
+    _login(app, "admin", "admin")
+    app.navigate("items", item_id=dap.id)
+    stock = app._views["stock"]
+    assert stock.current == "items"
+    page = stock.items
+    assert _wait(app, lambda: len(page.table.rows) == 2)
+    assert page.page.item.id == dap.id
+    assert page.page.tiles["In stock"][1].cget("text") == "2 BAG"
+    assert page.page.tiles["Sold, last 30 days"][1].cget("text") == "8 BAG"
+    page.chips.set("Out")
+    page._filter()
+    assert [r[4] for r in page.table.rows] != [dap.id] and len(page.table.rows) == 1
+    page.chips.set("Running low")
+    page._filter()
+    assert [r[4] for r in page.table.rows] == [dap.id]
+
+    # Purchase opens the Counter with the item picked
+    page.page._counter("purchase")
+    _pump(app)
+    counter = app._views["counter"]
+    assert app._active == "counter" and counter.intent.key == "purchase" and counter._item.id == dap.id
+
+    app.navigate("crops")
+    _pump(app, 40)
+    assert app._active == "stock" and app._views["stock"].current == "crops"
+    assert app.find_view("crops") is not None
+
+
+def dt_today():
+    import datetime as dt
+
+    return dt.date.today().isoformat()

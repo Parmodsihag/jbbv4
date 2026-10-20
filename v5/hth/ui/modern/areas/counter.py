@@ -529,13 +529,18 @@ class CounterView(BaseView):
         self.today_label.configure(text=f"Today: {t.entries} entries · gave {rupees(t.debit)} · got {rupees(t.credit)}")
 
     # Showing ---------------------------------------------------------------------------
-    def on_show(self, customer_id: int | None = None, intent: str | None = None, **kwargs) -> None:
+    def on_show(
+        self, customer_id: int | None = None, intent: str | None = None, item_id: int | None = None, **kwargs
+    ) -> None:
         self.cust.refresh()
         self.item.refresh()
         self._refresh_money()
         self._refresh_today()
         if intent:
             self.set_intent(intent, focus=False)
+        if item_id is not None and self.intent.goods:  # from Stock: Purchase / Sale of this item
+            self.item.set(item_id)
+            self._on_item(item_id, focus=False)
         if customer_id is not None:
             self.pick_customer(customer_id)
         elif self.customer_id is not None:
