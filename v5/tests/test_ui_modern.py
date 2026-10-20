@@ -339,3 +339,20 @@ def test_khata_for_an_employee(app):
     assert page.customer.id == c.id
     assert not hasattr(page, "more_button")  # no corrections menu for employees
     assert page._row_actions(("x",) * 10)[0][0] == "Only an admin can change an entry"
+
+
+def test_today_lists_what_needs_doing(app):
+    ctx = app.ctx
+    late = ctx.accounts.add_customer("LATE", "X", 500, "2026-01-01", tag="2")
+    ctx.krar.add_or_update(late.id, "2026-01-05")
+    urea = ctx.inventory.add_item("UREA", 260, 300, unit="BAG", opening_quantity=2)
+    ctx.sales.record("P", "2026-10-01", late.id, urea.display, 2, 300, "2", "admin", item_id=urea.id, unit="BAG")
+    _login(app, "admin", "admin")
+    today = app._views["today"]
+    assert _wait(app, lambda: today._data is not None)
+    assert [e.customer_id for e, _d, _b in today._data["promises"]] == [late.id]
+    assert [r.item_id for r in today._data["reorder"]] == [urea.id]
+    assert today.headline.cget("text").endswith("things need you today")
+    # the backup row can be done from here
+    today.backup_now()
+    assert ctx.backup.last_backup() is not None
