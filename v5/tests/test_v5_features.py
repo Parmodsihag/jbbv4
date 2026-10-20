@@ -375,3 +375,14 @@ def test_new_layout_areas_hold_every_classic_screen():
     assert [t.key for t in next(a for a in mine if a.key == "settings").tabs] == ["settings"]
     assert registry.home(mine, is_admin=False) == "counter"
     assert registry.home(mine, is_admin=True) == "today"
+
+
+def test_module_report_names_match_their_screens():
+    """The new Reports catalogue lists module reports by the names their screens know."""
+    from hth.modules import discover
+    from hth.modules.crop_trading.views import REPORTS as CROP_REPORTS
+    from hth.modules.finance.views import FIN_REPORTS
+
+    specs = {s.key: s for s in discover()}
+    assert specs["finance"].reports == tuple(FIN_REPORTS)
+    assert specs["crops"].reports == tuple(CROP_REPORTS)

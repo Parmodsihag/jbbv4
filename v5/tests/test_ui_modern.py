@@ -434,3 +434,41 @@ def test_money_for_an_employee(app):
     _pump(app)
     money = app._views["money"]
     assert "Reports & setup" not in money.pages and "Cash book" in money.pages
+
+
+def test_reports_catalogue_pins_and_opening(app):
+    _login(app, "admin", "admin")
+    app.navigate("reports")
+    _pump(app)
+    area = app._views["reports"]
+    ids = {e.id for e in area.entries}
+    assert {"r:collections", "r:datacheck", "m:finance:Profit & loss", "m:crops:Open lots"} <= ids
+    assert area.pins() == ["r:collections", "r:daybook", "r:reorder", "m:finance:Profit & loss"]
+    area.toggle_pin("r:daybook")
+    assert "r:daybook" not in area.pins() and area.settings.get("reports.pinned")
+    area.search.insert(0, "aging")
+    area._render()
+    assert [e.id for e in area._shown] == ["r:aging"]
+    area._open_first()
+    _pump(app, 40)
+    assert area.current_report == "aging" and area.runner.spec.key == "aging"
+    area.show_catalogue()
+    assert area.current_report is None
+    # from anywhere: insights and Today's links open a report directly
+    app.navigate("reports", report="datacheck")
+    _pump(app, 40)
+    assert area.runner.spec.key == "datacheck"
+    # a module's report opens on the module's own screen, on that report
+    next(e for e in area.entries if e.id == "m:finance:Profit & loss").open()
+    _pump(app, 40)
+    money = app._views["money"]
+    assert app._active == "money" and money.current == "finance_reports"
+    assert money.hosted["Reports & setup"].reports.which.get() == "Profit & loss"
+
+
+def test_reports_for_an_employee(app):
+    _login(app, "emp1", "emp1")
+    app.navigate("reports")
+    _pump(app)
+    ids = {e.id for e in app._views["reports"].entries}
+    assert "r:audit" not in ids and "m:finance:Profit & loss" not in ids and "r:collections" in ids

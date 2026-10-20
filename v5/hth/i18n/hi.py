@@ -786,4 +786,37 @@ HI.update({
     "The ledger entry it came from is NOT deleted - remove that from the customer's khata.": 'जिस खाता एंट्री से यह आई, वह नहीं हटेगी - उसे ग्राहक के खाते से हटाएँ।',
     '{} entries · opening {}': '{} एंट्री · शुरुआती {}',
 })
+
+# The new layout's Reports (v5.5).
+HI.update({
+    '{} reports · each one sorts, filters and goes to Excel': '{} रिपोर्ट · हर एक छँटती है, छनती है और एक्सेल में जाती है',
+    'Customers & collections': 'ग्राहक और वसूली',
+    'Find a report — aging, gst, lots, profit…': 'रिपोर्ट खोजें — पुरानापन, gst, लॉट, मुनाफ़ा…',
+    'Pinned': 'पिन किए',
+    'Sales & tax': 'बिक्री और टैक्स',
+    'principal and interest per year': 'हर साल का मूल और ब्याज',
+    'below how many': 'कितने से कम',
+    'dates': 'तारीखें',
+    'dates, action, words': 'तारीखें, काम, शब्द',
+    'days without a sale': 'बिना बिक्री के दिन',
+    'double-click a finding to fix it': 'ठीक करने के लिए डबल-क्लिक करें',
+    'every account, balance and days': 'हर खाता, बकाया और दिन',
+    'every entry of one day': 'एक दिन की हर एंट्री',
+    'every item and its value': 'हर सामान और उसका मूल्य',
+    'everyone who owes, biggest first': 'जिन पर बकाया है, सबसे बड़ा पहले',
+    'late · today · upcoming promises': 'देर · आज · आने वाले वादे',
+    'months': 'महीने',
+    'interest on open balances': 'खुले बकाये पर ब्याज',
+    'one customer': 'एक ग्राहक',
+    'opens in {}': '{} में खुलेगा',
+    'promised money, next N days': 'वादे का पैसा, अगले N दिन',
+    'the biggest balances': 'सबसे बड़े बकाये',
+    'what the current sales will use up': 'अभी की बिक्री से जो खत्म होगा',
+    'who owes, by how long': 'किस पर कितने समय से बकाया',
+    'within days': 'दिनों के भीतर',
+    '← All reports': '← सभी रिपोर्ट',
+    '★  Pinned': '★  पिन किया',
+    '☆  Pin': '☆  पिन करें',
+    'No report matches - try another word.': 'कोई रिपोर्ट नहीं मिली - दूसरा शब्द आज़माएँ।',
+})
 # fmt: on
