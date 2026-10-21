@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 5.7.0 — 2026-10-21
 
 ### Colour themes
 - **Settings → Appearance & language → Colours**: seven colour themes, each in a light and a
