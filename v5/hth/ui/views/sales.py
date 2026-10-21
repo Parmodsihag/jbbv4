@@ -196,7 +196,8 @@ class SalesView(BaseView):
             "Credit  ·  receive / purchase",
             lambda: self.submit("M"),
             fg_color=theme.color("success"),
-            hover_color=("#166534", "#22C55E"),
+            hover_color=theme.color("success_hover"),
+            text_color=theme.color("on_status"),
         )
         self.credit_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
         ctk.CTkLabel(

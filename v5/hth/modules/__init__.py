@@ -27,6 +27,12 @@ class ModuleSpec:
     permission: Permission | None = None
     shortcut: str | None = None  # Alt+<letter>
     order: int = 100
+    # where the new layout (v5.5) shows the module: an area key and the tab's name there
+    area: str | None = None
+    tab: str | None = None
+    # report names the module's screen can open with ``navigate(key, report=name)`` - listed
+    # in the new layout's Reports catalogue
+    reports: tuple[str, ...] = ()
 
 
 def discover() -> list[ModuleSpec]:

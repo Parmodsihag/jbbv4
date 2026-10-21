@@ -1,5 +1,92 @@
 # Changelog
 
+## 5.7.0 — 2026-10-21
+
+### Colour themes
+- **Settings → Appearance & language → Colours**: seven colour themes, each in a light and a
+  dark version - **Slate** (the original teal), **Forest** (field greens), **Saffron** (warm
+  marigold), **Indigo** (calm blue-violet), **Plum** (mauve), **Paper** (soft sepia, low glare)
+  and **High contrast** (black and white with strong blue / yellow, for bright light). Each
+  tile is a small picture of that theme; a click changes every screen at once - nothing is
+  rebuilt and nothing typed is lost. Remembered for the whole shop, like Light / Dark /
+  System (now called **Mode**), which still flips inside whichever theme is on.
+- Every theme is checked for readable text (WCAG contrast: body text 7:1, everything else
+  4.5:1), in both versions, by the tests.
+- Switches, tick boxes, drop-downs, entry boxes and scrollbars now take the theme's colours
+  instead of customtkinter's stock blue - in Slate too.
+- Toasts and the red / green buttons use dark text on the bright dark-mode colours (white on
+  light red was hard to read). Classic sidebar: the shop name, the active item and the Alt
+  hints are brighter on the dark menu (they were hard to read in light mode).
+
+### Fixed
+- Classic **Dashboard**: switching light / dark no longer shows "Something went wrong". A chart
+  took the keyboard focus whenever it was drawn or clicked and was then redrawn while Windows
+  was still giving the focus back to it; charts now hand the focus back straight away.
+
+## 5.6.0 — 2026-10-20
+
+### Faster - same books, same numbers
+Measured on a copy-sized shop (663 accounts, 6,200 entries, 76 items): every interest and
+balance figure is identical, checked bit for bit.
+- **Start-up**: Excel (openpyxl), charts (matplotlib) and the Assistant's numpy now load the
+  first time they are needed, not when the program opens - loading the program takes a
+  quarter of the time it did.
+- **Counter**: picking a customer and switching Sale / Purchase / Payment in / Payment out is
+  two to three times faster. The two side columns keep their width, so a long name no longer
+  re-lays-out the whole screen; the screen no longer pushes the status line off the bottom.
+- **Coming back to a screen** reads nothing when nothing has been written since and it is the
+  same day: Khata, Collections, Stock, Money, Today and the Counter only reload when something
+  changed. After a change Today redraws only the cards whose figures moved.
+- **Collections**: Late / Today / Next 7 days … switch instantly (the lists come from the last
+  load instead of recomputing every balance).
+- **Reports**: typing in the search box is about five times faster - the catalogue is built
+  once and searching shows and hides its rows.
+- **Balances and interest** for the whole shop are computed about twice as fast (dates are read
+  once, the financial-year periods of each date once).
+- **Database**: each part of the program keeps its connection open instead of opening one for
+  every small question - opening one cost 300 times the question itself on Windows.
+- **Today**: "default password still in use" no longer re-hashes admin/admin and emp1/emp1 on
+  every visit (only after a password changes). **Settings** lists the microphones in the
+  background instead of making the screen wait for the sound system.
+
+## 5.5.0 — 2026-10-20
+
+### A new layout - and the classic one is still there
+- **New** (the default): six areas across the top - **Today · Counter · Khata · Stock · Money ·
+  Reports** - with Settings behind the gear and an **Ask** box on every screen. **Classic** is the
+  sidebar layout of v5.4, unchanged. **Settings → Appearance & language → Layout** switches the
+  whole shop (admin), and back; the user menu (top right) has "Switch to the classic layout".
+  A shop that chose Classic keeps it after updating.
+- Every Alt-letter still works (Alt+S Counter, Alt+A Khata, Alt+K Collections, Alt+I Stock,
+  Alt+C Crops & rates, Alt+F Money, Alt+B GST bills, Alt+R Reports, Alt+T Settings, Alt+U
+  Users, Alt+H Ask). Admins start on Today, everyone else at the Counter.
+- **Counter**: four tabs in shop words - Sale, Purchase, Payment in, Payment out (Alt+1-4) -
+  instead of Debit / Credit; the small print under Save still says what is booked (P/M, tag).
+  The customer's balance, promise, last payment and last entries beside the form; "+ New
+  customer" without leaving the entry; **Paid now** inside a sale (cash / UPI / bank) saved
+  together with it; Payment in can mark the open promise kept and settle the account;
+  Ctrl+Shift+Enter never saves a sale.
+- **Khata**: customer list and one page per customer (balance split into entered + interest,
+  promise, Sale / Payment in / Promise / WhatsApp / Statement, entries by period, promises,
+  crop trades, details); admin corrections on an entry's right-click. Deleting an entry says
+  the new balance and that stock does not change. **Collections** replaces Karar: late / today /
+  next 7 days / later / owe-but-no-promise, with the reminder (editable) and what happened.
+- **Today**: what needs doing - promises due with WhatsApp / Got payment / New date, stock
+  running out, housekeeping (Back up now, monthly expenses to post, data problems) - today's
+  figures, who owes by age, latest entries.
+- **Stock**: item list with Running low / Out / Expiring / Not selling and an item page (lasts
+  about N days, movements); Crops & rates inside. **Money**: account tiles, due expenses, the
+  cash book with + Expense / Income / Transfer, this month so far; GST bills and Reports &
+  setup inside. **Reports**: one searchable catalogue of all 34 reports with pinned favourites.
+  **Settings**: sections instead of one long scroll; Users is a section.
+
+### Under the hood
+- Business rules, numbers and the database are unchanged. One service method was added:
+  `SalesService.record_sale_with_payment` (the sale's lines and the payment in one
+  transaction, undone together).
+- The new layout lives in `hth/ui/modern/`; modules name their place in it (`ModuleSpec.area`,
+  `tab`, `reports`) and core still never imports them.
+
 ## 5.4.0 — 2026-10-21
 
 ### Updates from inside the app

@@ -18,6 +18,7 @@ from hth.ui.format import open_path
 from hth.ui.views.base import BaseView
 from hth.ui.widgets.dialogs import Field, confirm, info, run_form
 from hth.ui.widgets.forms import Card, primary_button, secondary_button
+from hth.ui.widgets.theme_picker import ThemePicker
 
 _SPEAK = {"voice": "When I speak", "always": "Always", "never": "Never"}  # Settings -> Assistant -> Speak answers
 
@@ -30,8 +31,19 @@ class SettingsView(BaseView):
     def build(self) -> None:
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         scroll.pack(fill="both", expand=True)
-        s = self.ctx.settings
+        self._build_look(scroll)
+        self._build_account(scroll)
+        self._build_data(scroll)
+        self._build_hindi(scroll)
+        self._build_assistant(scroll)
+        self._build_company(scroll)
+        self._build_reminders(scroll)
+        self._build_categories(scroll)
+        self._build_updates(scroll)
+        self._build_about(scroll)
 
+    # Cards - one method each, so the new layout can show them as sections ------------------
+    def _build_look(self, scroll) -> None:
         look = Card(scroll, "Appearance & security")
         look.pack(fill="x", padx=4, pady=4)
         prefs = self.ctx.prefs
@@ -57,15 +69,43 @@ class SettingsView(BaseView):
 
         row = ctk.CTkFrame(look, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=6)
-        ctk.CTkLabel(row, text="Theme", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        ctk.CTkLabel(row, text="Layout", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        self.layout_choice = ctk.CTkSegmentedButton(
+            row,
+            values=["Classic", "New"],
+            command=self._set_layout,
+            font=theme.font(13),
+            state="normal" if can_edit else "disabled",
+        )
+        self.layout_choice.set("New" if prefs.layout() == "new" else "Classic")
+        self.layout_choice.pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text="   Classic: menu on the left, as before.  New: six areas across the top.  For the whole shop.",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
+        ).pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=6)
+        ctk.CTkLabel(row, text="Mode", font=theme.font(13), width=120, anchor="w").pack(side="left")
         self.mode = ctk.CTkSegmentedButton(
             row, values=["Light", "Dark", "System"], command=self._set_mode, font=theme.font(13)
         )
         self.mode.set(self.ctx.app.appearance.title())
         self.mode.pack(side="left")
         ctk.CTkLabel(
-            row, text="   remembered for next time", font=theme.font(11), text_color=theme.color("muted")
+            row,
+            text="   remembered for next time; every colour theme has a light and a dark version",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
         ).pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=6)
+        ctk.CTkLabel(row, text="Colours", font=theme.font(13), width=120, anchor="nw").pack(side="left", fill="y")
+        self.theme_picker = ThemePicker(row, theme.active_theme(), self.ctx.app.apply_color_theme)
+        self.theme_picker.pack(side="left", fill="x", expand=True)
 
         row = ctk.CTkFrame(look, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=6)
@@ -117,6 +157,7 @@ class SettingsView(BaseView):
             text_color=theme.color("muted"),
         ).pack(side="left")
 
+    def _build_account(self, scroll) -> None:
         acct = Card(scroll, "My account")
         acct.pack(fill="x", padx=4, pady=4)
         row = ctk.CTkFrame(acct, fg_color="transparent")
@@ -127,6 +168,8 @@ class SettingsView(BaseView):
         )
         secondary_button(row, "Change my password", self.change_password, width=170).pack(side="left")
 
+    def _build_data(self, scroll) -> None:
+        s = self.ctx.settings
         data = Card(scroll, "Data")
         data.pack(fill="x", padx=4, pady=4)
         body = ctk.CTkFrame(data, fg_color="transparent")
@@ -189,14 +232,7 @@ class SettingsView(BaseView):
             anchor="w",
         ).pack(fill="x", pady=(8, 0))
 
-        self._build_hindi(scroll)
-        self._build_assistant(scroll)
-        self._build_company(scroll)
-        self._build_reminders(scroll)
-        self._build_categories(scroll)
-
-        self._build_updates(scroll)
-
+    def _build_about(self, scroll) -> None:
         about = Card(scroll, "About")
         about.pack(fill="x", padx=4, pady=4)
         ctk.CTkLabel(
@@ -413,6 +449,11 @@ class SettingsView(BaseView):
     def _set_mode(self, value: str) -> None:
         self.ctx.app.apply_theme(value.lower())
 
+    def on_theme_change(self) -> None:
+        if hasattr(self, "mode"):
+            self.mode.set(self.ctx.app.appearance.title())  # the header button toggles it too
+            self.theme_picker.select(theme.active_theme())
+
     def _set_language(self, value: str) -> None:
         lang = "hi" if value == "हिन्दी" else "en"
         if lang == self.ctx.prefs.language():
@@ -420,6 +461,13 @@ class SettingsView(BaseView):
         self.ctx.audit.log("09", f"language -> {lang}", self.ctx.username)
         # after the button callback returns: the rebuild destroys this screen
         self.ctx.app.after(20, lambda: self.ctx.app.apply_language(lang))
+
+    def _set_layout(self, value: str) -> None:
+        layout = "new" if value == "New" else "classic"
+        if layout != self.ctx.prefs.layout():
+            self.ctx.app.ask_layout(layout)
+        # until the rebuild (or after "No"), the button shows the layout actually in use
+        self.layout_choice.set("New" if self.ctx.prefs.layout() == "new" else "Classic")
 
     # Hindi names -----------------------------------------------------------------------
     def _build_hindi(self, scroll) -> None:
@@ -706,13 +754,15 @@ class SettingsView(BaseView):
         row = ctk.CTkFrame(body, fg_color="transparent")
         row.pack(fill="x", pady=(10, 0))
         ctk.CTkLabel(row, text="Microphone", font=theme.font(12), anchor="w").pack(side="left", padx=(0, 10))
-        devices = voice.input_devices()
-        names = [d.name for d in devices if not d.loopback] + [d.name for d in devices if d.loopback]
         saved = self.ctx.prefs.assistant_mic()
         self.mic_menu = ctk.CTkOptionMenu(
-            row, values=["Automatic", *names], command=self._set_mic, font=theme.font(12), width=280
+            row,
+            values=["Automatic", *([saved] if saved else [])],
+            command=self._set_mic,
+            font=theme.font(12),
+            width=280,
         )
-        self.mic_menu.set(saved if saved in names else "Automatic")
+        self.mic_menu.set(saved or "Automatic")
         self.mic_menu.pack(side="left")
         secondary_button(row, "Test microphone", self.test_mic, width=150).pack(side="left", padx=8)
         self.mic_result = ctk.CTkLabel(
@@ -725,7 +775,21 @@ class SettingsView(BaseView):
             wraplength=900,
         )
         self.mic_result.pack(fill="x", pady=(4, 0))
-        chosen = voice.choose_device(saved)
+
+        # asking Windows for its microphones starts the sound system (a second on the shop
+        # PC): done in the background, so Settings opens without waiting for it
+        def find():
+            devices = voice.input_devices()
+            return devices, voice.choose_device(saved, devices)
+
+        self.run_async(find, self._mics_found, lambda _exc: None)
+
+    def _mics_found(self, found) -> None:
+        devices, chosen = found
+        names = [d.name for d in devices if not d.loopback] + [d.name for d in devices if d.loopback]
+        saved = self.ctx.prefs.assistant_mic()
+        self.mic_menu.configure(values=["Automatic", *names])
+        self.mic_menu.set(saved if saved in names else "Automatic")
         if chosen is not None:
             self._mic_note(f"Listening with: {chosen.name}", f"इससे सुनता है: {chosen.name}")
 
@@ -869,7 +933,7 @@ class SettingsView(BaseView):
         )
         if not path:
             return
-        view = getattr(self.ctx.app, "_views", {}).get("assistant")
+        view = self.ctx.app.find_view("assistant")
         if getattr(view, "voice", None) is not None:
             view.voice.unload()
         self.ctx.toast("Installing the voice model…")
@@ -885,7 +949,7 @@ class SettingsView(BaseView):
         self.run_async(lambda: voice.install_zip(Path(path), self.ctx.settings.data_dir), done, self._model_failed)
 
     def _assistant_model(self):
-        view = getattr(self.ctx.app, "_views", {}).get("assistant")
+        view = self.ctx.app.find_view("assistant")
         return getattr(view, "system2", None)
 
     def install_model(self) -> None:

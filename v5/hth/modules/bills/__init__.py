@@ -19,4 +19,6 @@ MODULE = ModuleSpec(
     permission=Permission.BILLING,
     shortcut="b",
     order=10,
+    area="money",
+    tab="GST bills",
 )

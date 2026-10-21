@@ -31,6 +31,9 @@ def app(tmp_path, monkeypatch):
     db = Database(settings.db_path)
     initialize(db)
     AuthService(db).ensure_default_users()
+    from hth.services.preferences import Preferences
+
+    Preferences(db).set_layout("classic")  # these walk the classic screens; tests/test_ui_modern.py the new ones
     if not os.environ.get("HTH_UI_FRESH"):
         from hth.ui.views.setup import mark_setup
 
@@ -39,6 +42,7 @@ def app(tmp_path, monkeypatch):
     application.update()
     yield application
     application.destroy()
+    db.close()  # connections stay open between units of work: let the temp folder go
 
 
 def _pump(app, n=30):
@@ -260,6 +264,11 @@ def test_admin_and_employee_walkthrough(app):
     assert app._active == "bills" and app._views["bills"].browse.table.rows[0][0] == saved.bill_number
 
     app.toggle_theme()
+    app.navigate("settings")
+    _pump(app, 10)
+    app._views["settings"].theme_picker._pick("paper")  # the classic screens recolour too
+    _pump(app, 5)
+    assert app.prefs.color_theme() == "paper"
     app.navigate("dashboard")
     _pump(app, 40)
 
@@ -459,6 +468,29 @@ def test_v5_quick_money_slip_and_shortcuts(app, monkeypatch):
     sheets = [w for w in app.winfo_children() if isinstance(w, ShortcutSheet)]
     assert sheets
     sheets[0].destroy()
+
+
+def test_v5_light_dark_switch_on_the_dashboard_charts(app):
+    """A light/dark switch redraws the charts; it used to toast "Something went wrong"
+    because a destroyed chart still had the keyboard focus."""
+    errors = []
+    app.report_callback_exception = lambda exc, val, tb: errors.append(val)
+    app.ctx.accounts.add_customer("RAM", "X", 1000, "2026-01-01")  # a debtor: the top-10 chart draws
+    _login(app, "admin", "admin")
+    app.navigate("dashboard")
+    dash = app._views["dashboard"]
+    assert _wait(app, lambda: dash.c_top._figure_canvas is not None)
+    _pump(app, 10)
+    cards = (dash.c_flow, dash.c_aging, dash.c_top, dash.c_activity)
+    charts = [c._figure_canvas.get_tk_widget() for c in cards if c._figure_canvas is not None]
+    assert app.focus_get() not in charts  # a chart takes no keys
+    charts[-1].event_generate("<Button-1>", x=20, y=20)  # nor when it is clicked
+    _pump(app, 10)
+    assert app.focus_get() not in charts
+    for _ in range(2):
+        app.toggle_theme()
+        _pump(app, 20)
+    assert errors == []
 
 
 def test_v5_employee_cannot_open_admin_reports_by_link(app):

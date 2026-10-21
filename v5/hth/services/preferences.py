@@ -8,11 +8,13 @@ from hth.services.settings import SettingsService
 
 DEFAULTS = {
     "ui.theme": "dark",  # light | dark | system
+    "ui.color_theme": "slate",  # slate | forest | saffron | indigo | plum | paper | contrast
     "ui.number_style": "indian",  # indian | international
     "ui.sidebar_compact": "0",
     "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
     "ui.text_scale": "1.0",  # 0.9 | 1.0 | 1.15 | 1.3
     "ui.language": "en",  # en | hi
+    "ui.layout": "new",  # new (six areas across the top, v5.5) | classic (the sidebar, as in v5.4)
     "assistant.speak": "voice",  # speak answers: voice (when the question was spoken) | always | never
     "assistant.mic": "",  # the recording device's name; "" = automatic (never a loopback like Stereo Mix)
     "update.repo": "Parmodsihag/jbbv4",  # where updates come from (GitHub owner/name)
@@ -23,8 +25,10 @@ DEFAULTS = {
 }
 SPEAK_MODES = ("voice", "always", "never")
 LANGUAGES = ("en", "hi")
+LAYOUTS = ("classic", "new")
 TEXT_SCALES = (0.9, 1.0, 1.15, 1.3)
 THEMES = ("light", "dark", "system")
+COLOR_THEMES = ("slate", "forest", "saffron", "indigo", "plum", "paper", "contrast")  # = hth.ui.theme.THEMES
 
 
 class Preferences:
@@ -39,6 +43,15 @@ class Preferences:
         if mode not in THEMES:
             raise ValueError(f"Theme must be one of {', '.join(THEMES)}.")
         self.settings.set("ui.theme", mode)
+
+    def color_theme(self) -> str:
+        v = self.settings.get("ui.color_theme").lower()
+        return v if v in COLOR_THEMES else "slate"
+
+    def set_color_theme(self, key: str) -> None:
+        if key not in COLOR_THEMES:
+            raise ValueError(f"Colour theme must be one of {', '.join(COLOR_THEMES)}.")
+        self.settings.set("ui.color_theme", key)
 
     def number_style(self) -> str:
         v = self.settings.get("ui.number_style").lower()
@@ -104,6 +117,16 @@ class Preferences:
         if lang not in LANGUAGES:
             raise ValueError("Language must be en or hi.")
         self.settings.set("ui.language", lang)
+
+    def layout(self) -> str:
+        """Which set of screens the whole shop uses: the classic sidebar or the new layout."""
+        v = self.settings.get("ui.layout").lower()
+        return v if v in LAYOUTS else "new"
+
+    def set_layout(self, layout: str) -> None:
+        if layout not in LAYOUTS:
+            raise ValueError("Layout must be classic or new.")
+        self.settings.set("ui.layout", layout)
 
     def sidebar_compact(self) -> bool:
         return self.settings.get_bool("ui.sidebar_compact")

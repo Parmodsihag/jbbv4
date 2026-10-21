@@ -152,3 +152,39 @@ def test_cash_flow_and_pnl(fin, accounts, inventory, sales, db):
     assert pl.net_profit == 560 + 100 - 800
     assert fin.monthly_expenses(1, today=dt.date(2026, 8, 31)) == [("2026-08", 800, 100)]
     assert fin.expenses_by_head("2026-08-01", "2026-08-31") == [("RENT", 500), ("SALARIES", 300)]
+
+
+def test_sale_with_payment_is_one_unit(fin, accounts, inventory, sales, db):
+    """v5.5 Counter: 'Paid now' inside a sale - the lines and the payment together."""
+    from hth.services.sales import SaleLine
+
+    cash = fin.money_accounts()[0]
+    c = accounts.add_customer("ram", "", 0, "2026-01-01")
+    urea = inventory.add_item("urea", 260, 300, unit="BAG", opening_quantity=10)
+    lines = [SaleLine(urea.display, 4, 266.5, urea.id, "BAG"), SaleLine("LABOUR", 1, 50)]
+    count = lambda: db.fetchone("SELECT COUNT(*) AS n FROM transactions")["n"]  # noqa: E731
+    before = count()
+
+    results = sales.record_sale_with_payment("2026-08-10", c.id, lines, "1", "emp1", 1000, "cash", cash.id)
+    assert [r.kind for r in results] == ["P", "P", "M"]
+    assert count() == before + 3 and inventory.quantity(urea.id) == 6
+    assert fin.balance(cash.id) == 1000 and fin.entries(cash.id)[0].kind == "receipt"
+    assert accounts.get_balance(c.id, dt.date(2026, 8, 10)) == round(4 * 266.5 + 50 - 1000, 2)
+    # the free-text line is a charge on the khata, not cash paid out
+    assert len(fin.entries(cash.id)) == 1
+
+    # anything invalid: nothing at all is written
+    with pytest.raises(ValidationError, match="Paid now"):
+        sales.record_sale_with_payment("2026-08-10", c.id, lines, "1", "emp1", "abc")
+    with pytest.raises(ValidationError):
+        sales.record_sale_with_payment("2026-08-10", c.id, [SaleLine("X", 0, 5)], "1", "emp1", 100)
+    with pytest.raises(ValidationError, match="settle"):
+        sales.record_sale_with_payment("2026-08-10", c.id, lines, "0", "emp1", 100)
+    assert count() == before + 3 and inventory.quantity(urea.id) == 6 and fin.balance(cash.id) == 1000
+
+    # nothing paid: just the sale
+    assert len(sales.record_sale_with_payment("2026-08-11", c.id, lines[:1], "1", "emp1", 0)) == 1
+
+    # undo takes back both parts of the first one
+    assert sales.undo(results, "emp1") == 3
+    assert fin.balance(cash.id) == 0 and inventory.quantity(urea.id) == 6  # 2 left + the 4 put back
