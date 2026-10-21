@@ -832,4 +832,19 @@ HI.update({
     'Lock screen   Ctrl+L': 'स्क्रीन लॉक   Ctrl+L',
     'ADMIN': 'एडमिन',
 })
+
+# Colour themes (v5.7).
+HI.update({
+    'Mode': 'मोड',
+    'Colours': 'रंग',
+    'remembered for next time; every colour theme has a light and a dark version':
+        'अगली बार के लिए याद रहेगा; हर रंग-थीम हल्की और गहरी दोनों में है',
+    'Slate': 'स्लेट', 'The original teal and grey': 'पहले वाला फ़िरोज़ी और स्लेटी',
+    'Forest': 'हरियाली', 'Calm field greens': 'खेतों जैसा शांत हरा',
+    'Saffron': 'केसरिया', 'Warm marigold and stone': 'गेंदे जैसा गर्म रंग',
+    'Indigo': 'नील', 'Calm blue-violet': 'शांत नीला-बैंगनी',
+    'Plum': 'जामुनी', 'Rich mauve and soft lilac': 'गहरा जामुनी, हल्का बैंगनी',
+    'Paper': 'कागज़', 'Soft sepia, low glare': 'हल्का भूरा, कम चमक',
+    'High contrast': 'हाई कंट्रास्ट', 'Clearest text in bright light': 'तेज़ रोशनी में सबसे साफ़ अक्षर',
+})
 # fmt: on

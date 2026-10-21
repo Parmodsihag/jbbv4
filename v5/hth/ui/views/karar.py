@@ -66,7 +66,8 @@ class KararView(BaseView):
             "Mark settled",
             self.settle_krar,
             fg_color=theme.color("success"),
-            hover_color=("#166534", "#22C55E"),
+            hover_color=theme.color("success_hover"),
+            text_color=theme.color("on_status"),
         ).pack(fill="x", pady=(10, 0))
 
         right = Card(self)

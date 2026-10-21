@@ -491,6 +491,31 @@ def test_settings_sections(app):
     assert area.current_section == "About"
 
 
+def test_colour_themes_recolour_every_screen_in_place(app):
+    from hth.services.preferences import Preferences
+    from hth.ui import theme
+
+    _login(app, "admin", "admin")
+    for key in AREAS:  # build every area, so every one is redrawn below
+        app.navigate(key)
+        _pump(app, 10)
+    area = app._views["settings"]
+    shell = app._modern
+    for key in theme.THEMES:
+        area.theme_picker._pick(key)
+        _pump(app, 5)
+        assert theme.active_theme() == key and Preferences(app.ctx.db).color_theme() == key
+        assert app.cget("bg").lower() == theme.current("bg").lower()
+    assert app._modern is shell and app._views["settings"] is area  # recoloured, not rebuilt
+    app.toggle_theme()  # light / dark still flips inside the colour theme
+    _pump(app, 5)
+    assert app.cget("bg").lower() == theme.current("bg").lower()
+    assert area.mode.get() == app.appearance.title()
+    app.apply_color_theme("plum")  # however it is changed, the picker ticks the theme in use
+    _pump(app, 5)
+    assert area.theme_picker._selected == "plum"
+
+
 def test_ask_bar_hands_questions_to_the_assistant(app):
     _login(app, "admin", "admin")
     app.open_search()

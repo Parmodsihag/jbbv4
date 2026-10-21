@@ -211,7 +211,7 @@ class AssistantView(BaseView):
             self.voice, self._grammar, self._events.put, device=mic.index, device_name=mic.name
         )
         self._listener.start()
-        self.mic_button.configure(text=Raw("■"), fg_color=theme.color("danger"), text_color="#FFFFFF")
+        self.mic_button.configure(text=Raw("■"), fg_color=theme.color("danger"), text_color=theme.color("on_status"))
         self._set_status(_t("Listening… speak now", "सुन रहा हूँ… बोलिए"))
         self.after(50, self._poll_voice)
 

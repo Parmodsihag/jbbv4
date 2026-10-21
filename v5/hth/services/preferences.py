@@ -8,6 +8,7 @@ from hth.services.settings import SettingsService
 
 DEFAULTS = {
     "ui.theme": "dark",  # light | dark | system
+    "ui.color_theme": "slate",  # slate | forest | saffron | indigo | plum | paper | contrast
     "ui.number_style": "indian",  # indian | international
     "ui.sidebar_compact": "0",
     "security.lock_minutes": "0",  # lock the screen after N idle minutes; 0 = never
@@ -27,6 +28,7 @@ LANGUAGES = ("en", "hi")
 LAYOUTS = ("classic", "new")
 TEXT_SCALES = (0.9, 1.0, 1.15, 1.3)
 THEMES = ("light", "dark", "system")
+COLOR_THEMES = ("slate", "forest", "saffron", "indigo", "plum", "paper", "contrast")  # = hth.ui.theme.THEMES
 
 
 class Preferences:
@@ -41,6 +43,15 @@ class Preferences:
         if mode not in THEMES:
             raise ValueError(f"Theme must be one of {', '.join(THEMES)}.")
         self.settings.set("ui.theme", mode)
+
+    def color_theme(self) -> str:
+        v = self.settings.get("ui.color_theme").lower()
+        return v if v in COLOR_THEMES else "slate"
+
+    def set_color_theme(self, key: str) -> None:
+        if key not in COLOR_THEMES:
+            raise ValueError(f"Colour theme must be one of {', '.join(COLOR_THEMES)}.")
+        self.settings.set("ui.color_theme", key)
 
     def number_style(self) -> str:
         v = self.settings.get("ui.number_style").lower()

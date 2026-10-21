@@ -79,7 +79,7 @@ class App(ctk.CTk):
         theme.set_language_font(i18n.is_hindi())
         i18n_widgets.install()  # before the first widget: labels translate themselves
         self.appearance = self.prefs.theme()
-        theme.init_theme(self.appearance)
+        theme.init_theme(self.appearance, self.prefs.color_theme())
         theme.set_text_scale(self.prefs.text_scale())
         super().__init__()
         self.ctx = AppContext(db=db, settings=settings, app=self)
@@ -428,7 +428,11 @@ class App(ctk.CTk):
         self.brand_text = ctk.CTkFrame(brand, fg_color="transparent")
         self.brand_text.pack(side="left", padx=(6, 0), fill="x", expand=True)
         ctk.CTkLabel(
-            self.brand_text, text=__company__, font=theme.font(10, "bold"), text_color=theme.color("accent"), anchor="w"
+            self.brand_text,
+            text=__company__,
+            font=theme.font(10, "bold"),
+            text_color=theme.color("sidebar_accent"),
+            anchor="w",
         ).pack(fill="x")
         ctk.CTkLabel(
             self.brand_text,
@@ -483,7 +487,7 @@ class App(ctk.CTk):
             self.user_text,
             text=f"@{u.username} · {ROLES.get(u.role, u.role)}",
             font=theme.font(10),
-            text_color=theme.color("muted"),
+            text_color=theme.color("sidebar_muted"),
             anchor="w",
         ).pack(fill="x")
 
@@ -738,12 +742,25 @@ class App(ctk.CTk):
         self.apply_theme("light" if ctk.get_appearance_mode().lower() == "dark" else "dark")
 
     def apply_theme(self, mode: str) -> None:
+        """Light / dark / system - every colour theme has both."""
         self.appearance = mode
         theme.apply_appearance(mode)
         try:
             self.prefs.set_theme(mode)
         except Exception:  # noqa: BLE001 - a read-only database must not break the toggle
             log.exception("could not save theme")
+        self._theme_changed()
+
+    def apply_color_theme(self, key: str) -> None:
+        """Recolour every open screen in place - nothing is rebuilt, nothing typed is lost."""
+        theme.apply_theme(key)
+        try:
+            self.prefs.set_color_theme(theme.active_theme())
+        except Exception:  # noqa: BLE001
+            log.exception("could not save colour theme")
+        self._theme_changed()
+
+    def _theme_changed(self) -> None:
         if hasattr(self, "theme_button"):
             self.theme_button.configure(text=self._theme_icon())
         for view in self._views.values():
