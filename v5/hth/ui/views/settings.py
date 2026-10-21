@@ -18,6 +18,7 @@ from hth.ui.format import open_path
 from hth.ui.views.base import BaseView
 from hth.ui.widgets.dialogs import Field, confirm, info, run_form
 from hth.ui.widgets.forms import Card, primary_button, secondary_button
+from hth.ui.widgets.theme_picker import ThemePicker
 
 _SPEAK = {"voice": "When I speak", "always": "Always", "never": "Never"}  # Settings -> Assistant -> Speak answers
 
@@ -87,15 +88,24 @@ class SettingsView(BaseView):
 
         row = ctk.CTkFrame(look, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=6)
-        ctk.CTkLabel(row, text="Theme", font=theme.font(13), width=120, anchor="w").pack(side="left")
+        ctk.CTkLabel(row, text="Mode", font=theme.font(13), width=120, anchor="w").pack(side="left")
         self.mode = ctk.CTkSegmentedButton(
             row, values=["Light", "Dark", "System"], command=self._set_mode, font=theme.font(13)
         )
         self.mode.set(self.ctx.app.appearance.title())
         self.mode.pack(side="left")
         ctk.CTkLabel(
-            row, text="   remembered for next time", font=theme.font(11), text_color=theme.color("muted")
+            row,
+            text="   remembered for next time; every colour theme has a light and a dark version",
+            font=theme.font(11),
+            text_color=theme.color("muted"),
         ).pack(side="left")
+
+        row = ctk.CTkFrame(look, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=6)
+        ctk.CTkLabel(row, text="Colours", font=theme.font(13), width=120, anchor="nw").pack(side="left", fill="y")
+        self.theme_picker = ThemePicker(row, theme.active_theme(), self.ctx.app.apply_color_theme)
+        self.theme_picker.pack(side="left", fill="x", expand=True)
 
         row = ctk.CTkFrame(look, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=6)
@@ -438,6 +448,11 @@ class SettingsView(BaseView):
 
     def _set_mode(self, value: str) -> None:
         self.ctx.app.apply_theme(value.lower())
+
+    def on_theme_change(self) -> None:
+        if hasattr(self, "mode"):
+            self.mode.set(self.ctx.app.appearance.title())  # the header button toggles it too
+            self.theme_picker.select(theme.active_theme())
 
     def _set_language(self, value: str) -> None:
         lang = "hi" if value == "हिन्दी" else "en"

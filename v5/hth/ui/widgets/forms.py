@@ -171,6 +171,6 @@ def danger_button(master, text: str, command, **kwargs) -> ctk.CTkButton:
     kwargs.setdefault("font", theme.font(13))
     kwargs.setdefault("height", 34)
     kwargs.setdefault("fg_color", theme.color("danger"))
-    kwargs.setdefault("hover_color", ("#991B1B", "#DC2626"))
-    kwargs.setdefault("text_color", "#FFFFFF")
+    kwargs.setdefault("hover_color", theme.color("danger_hover"))
+    kwargs.setdefault("text_color", theme.color("on_status"))
     return ctk.CTkButton(master, text=text, command=command, **kwargs)

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Colour themes
+- **Settings → Appearance & language → Colours**: seven colour themes, each in a light and a
+  dark version - **Slate** (the original teal), **Forest** (field greens), **Saffron** (warm
+  marigold), **Indigo** (calm blue-violet), **Plum** (mauve), **Paper** (soft sepia, low glare)
+  and **High contrast** (black and white with strong blue / yellow, for bright light). Each
+  tile is a small picture of that theme; a click changes every screen at once - nothing is
+  rebuilt and nothing typed is lost. Remembered for the whole shop, like Light / Dark /
+  System (now called **Mode**), which still flips inside whichever theme is on.
+- Every theme is checked for readable text (WCAG contrast: body text 7:1, everything else
+  4.5:1), in both versions, by the tests.
+- Switches, tick boxes, drop-downs, entry boxes and scrollbars now take the theme's colours
+  instead of customtkinter's stock blue - in Slate too.
+- Toasts and the red / green buttons use dark text on the bright dark-mode colours (white on
+  light red was hard to read). Classic sidebar: the shop name, the active item and the Alt
+  hints are brighter on the dark menu (they were hard to read in light mode).
+
+### Fixed
+- Classic **Dashboard**: switching light / dark no longer shows "Something went wrong". A chart
+  took the keyboard focus whenever it was drawn or clicked and was then redrawn while Windows
+  was still giving the focus back to it; charts now hand the focus back straight away.
+
 ## 5.6.0 — 2026-10-20
 
 ### Faster - same books, same numbers

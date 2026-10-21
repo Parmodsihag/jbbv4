@@ -26,7 +26,9 @@ class NavItem(ctk.CTkFrame):
             self, text=label, font=theme.font(13), anchor="w", text_color=theme.color("sidebar_text")
         )
         self.text.pack(side="left", fill="x", expand=True)
-        self.hint = ctk.CTkLabel(self, text=hint, font=theme.font(10), text_color=theme.color("muted"), width=44)
+        self.hint = ctk.CTkLabel(
+            self, text=hint, font=theme.font(10), text_color=theme.color("sidebar_muted"), width=44
+        )
         self.hint.pack(side="right", padx=(0, 8))
         for w in (self, self.bar, self.icon, self.text, self.hint):
             w.bind("<Button-1>", lambda e: self.command())
@@ -40,8 +42,8 @@ class NavItem(ctk.CTkFrame):
     def set_active(self, on: bool) -> None:
         self._active = on
         self.configure(fg_color=theme.color("sidebar_active") if on else "transparent")
-        self.bar.configure(fg_color=theme.color("accent") if on else "transparent")
-        color = theme.color("accent") if on else theme.color("sidebar_text")
+        self.bar.configure(fg_color=theme.color("sidebar_accent") if on else "transparent")
+        color = theme.color("sidebar_accent") if on else theme.color("sidebar_text")
         self.icon.configure(text_color=color)
         self.text.configure(text_color=theme.color("sidebar_text"), font=theme.font(13, "bold" if on else "normal"))
 

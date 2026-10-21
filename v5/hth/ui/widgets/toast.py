@@ -28,7 +28,7 @@ class ToastHost:
             text=f"  {message}  ",
             font=theme.font(13, "bold"),
             fg_color=color,
-            text_color=("#FFFFFF", "#0F172A"),
+            text_color=theme.color("on_status"),
             corner_radius=8,
             height=40,
         )

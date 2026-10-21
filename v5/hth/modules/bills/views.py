@@ -52,7 +52,7 @@ class BillsView(BaseView):
                 text=f"Bill rendering is disabled: run   pip install {' '.join(missing)}   and restart.",
                 font=theme.font(13, "bold"),
                 fg_color=theme.color("warning"),
-                text_color=("#FFFFFF", "#0F172A"),
+                text_color=theme.color("on_status"),
                 corner_radius=8,
                 height=36,
             ).pack(fill="x", padx=4, pady=(4, 0))
