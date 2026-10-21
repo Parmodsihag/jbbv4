@@ -58,9 +58,13 @@ class CropTradingView(BaseView):
         self.reports = CropReportsPanel(self.tabs.tab("Reports"), self)
         self.reports.pack(fill="both", expand=True)
 
-    def on_show(self, **kwargs) -> None:
+    def on_show(self, report: str | None = None, **kwargs) -> None:
         for p in (self.lots, self.stock, self.reports):
             p.reload()
+        if report in REPORTS:  # opened from a report catalogue
+            self.tabs.set("Reports")
+            self.reports.which.set(report)
+            self.reports.run()
 
     def on_theme_change(self) -> None:
         for p in (self.lots, self.stock, self.reports):

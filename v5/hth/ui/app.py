@@ -79,7 +79,7 @@ class App(ctk.CTk):
         theme.set_language_font(i18n.is_hindi())
         i18n_widgets.install()  # before the first widget: labels translate themselves
         self.appearance = self.prefs.theme()
-        theme.init_theme(self.appearance)
+        theme.init_theme(self.appearance, self.prefs.color_theme())
         theme.set_text_scale(self.prefs.text_scale())
         super().__init__()
         self.ctx = AppContext(db=db, settings=settings, app=self)
@@ -97,6 +97,8 @@ class App(ctk.CTk):
         self._setup: SetupView | None = None
         self._lock: LockView | None = None
         self._palette: SearchPalette | None = None
+        self._modern = None  # the new layout's ModernShell while it is the shell in use
+        self._shell_keys: list[str] = []  # key sequences the current shell bound on the window
         self._registry = self._build_registry()
         self._today = dt.date.today()
         self._last_input = time.monotonic()
@@ -152,7 +154,9 @@ class App(ctk.CTk):
 
     def _on_day_change(self) -> None:
         log.info("date changed to %s", self._today)
-        if hasattr(self, "date_label"):
+        if self._modern is not None:
+            self._modern.refresh_date()
+        elif hasattr(self, "date_label"):
             self.date_label.configure(text=i18n.date_text(self._today, "%A, %d %B %Y"))
         for view in self._views.values():
             try:
@@ -171,12 +175,7 @@ class App(ctk.CTk):
 
     def show_login(self) -> None:
         self._close_lock()
-        if self._shell is not None:
-            self._shell.destroy()
-            self._shell = None
-        self._views.clear()
-        self._nav_buttons.clear()
-        self._active = None
+        self._teardown_shell()
         self.ctx.user = None
         if not setup_completed(self.ctx.db):
             self.show_setup()
@@ -207,7 +206,7 @@ class App(ctk.CTk):
         self.refresh_names()
         self._build_shell()
         self._last_input = time.monotonic()
-        self.navigate("dashboard")
+        self.navigate(self._modern.home() if self._modern is not None else "dashboard")
         self.toast(f"Welcome, {user.full_name or user.username}", "success")
         self.after(600, self._upgrade_notice)
         self.after(1500, self._update_notices)
@@ -324,7 +323,8 @@ class App(ctk.CTk):
             kinds.add("item")
         if self.ctx.can(Permission.BILLING) and any(e[0] == "bills" for e in self._registry):
             kinds.add("bill")
-        self._palette = SearchPalette(self, SearchService(self.ctx.db), kinds, self._search_pick)
+        on_ask = (lambda text: self.navigate("assistant", question=text)) if self._modern is not None else None
+        self._palette = SearchPalette(self, SearchService(self.ctx.db), kinds, self._search_pick, on_ask)
 
     def _search_pick(self, hit) -> None:
         if hit.kind == "customer":
@@ -335,7 +335,68 @@ class App(ctk.CTk):
             self.navigate("bills", bill_number=hit.id)
 
     # Shell -------------------------------------------------------------------------------
+    @property
+    def layout(self) -> str:
+        """'classic' (sidebar) or 'new' (six areas across the top) - one choice for the shop."""
+        return self.prefs.layout()
+
     def _build_shell(self) -> None:
+        if self.layout == "new":
+            from hth.ui.modern.shell import ModernShell
+
+            self._modern = ModernShell(self)
+            self._modern.pack(fill="both", expand=True)
+            self._shell = self._modern
+            self.content = self._modern.content
+            self.date_label = self._modern.date_label
+            self.status_label = self._modern.status_label
+            self.backup_label = self._modern.backup_label
+            self.refresh_backup_label()
+        else:
+            self._build_classic_shell()
+        self.bind_shell_key("<Control-k>", lambda e: self.open_search())
+        self.bind_shell_key("<Control-K>", lambda e: self.open_search())
+        self.bind_shell_key("<Control-l>", lambda e: self.lock())
+        self.bind_shell_key("<Control-L>", lambda e: self.lock())
+        self.bind_shell_key("<F1>", lambda e: self.show_shortcuts())
+
+    def bind_shell_key(self, sequence: str, callback) -> None:
+        """Bind a key on the window for the current shell; the binding goes with the shell."""
+        self.bind(sequence, callback)
+        self._shell_keys.append(sequence)
+
+    # Screens bind these on the window themselves (Sales: Ctrl+Enter, Ctrl+Z); a rebuilt shell
+    # has new screens, so the old screens' bindings must not outlive them.
+    _VIEW_KEYS = (
+        "<Control-Return>", "<Control-Shift-Return>", "<Control-z>",
+        "<Alt-Key-1>", "<Alt-Key-2>", "<Alt-Key-3>", "<Alt-Key-4>",
+    )  # fmt: skip
+    # Widgets of the shell that App methods reach with hasattr().
+    _SHELL_ATTRS = (
+        "sidebar", "menu_button", "brand_text", "user_chip", "user_text", "account_buttons", "lock_button",
+        "signout_button", "header_title", "header_subtitle", "theme_button", "date_label", "content",
+        "status_label", "backup_label",
+    )  # fmt: skip
+
+    def _teardown_shell(self) -> None:
+        """Destroy whichever shell is up, with its screens and key bindings."""
+        if self._shell is not None:
+            self._shell.destroy()
+            self._shell = None
+        self._modern = None
+        for sequence in (*self._shell_keys, *self._VIEW_KEYS):
+            try:
+                self.unbind(sequence)
+            except Exception:  # noqa: BLE001
+                pass
+        self._shell_keys.clear()
+        for name in self._SHELL_ATTRS:
+            self.__dict__.pop(name, None)
+        self._views.clear()
+        self._nav_buttons.clear()
+        self._active = None
+
+    def _build_classic_shell(self) -> None:
         shell = ctk.CTkFrame(self, fg_color="transparent")
         shell.pack(fill="both", expand=True)
         shell.grid_columnconfigure(1, weight=1)
@@ -367,7 +428,11 @@ class App(ctk.CTk):
         self.brand_text = ctk.CTkFrame(brand, fg_color="transparent")
         self.brand_text.pack(side="left", padx=(6, 0), fill="x", expand=True)
         ctk.CTkLabel(
-            self.brand_text, text=__company__, font=theme.font(10, "bold"), text_color=theme.color("accent"), anchor="w"
+            self.brand_text,
+            text=__company__,
+            font=theme.font(10, "bold"),
+            text_color=theme.color("sidebar_accent"),
+            anchor="w",
         ).pack(fill="x")
         ctk.CTkLabel(
             self.brand_text,
@@ -390,8 +455,8 @@ class App(ctk.CTk):
             item.pack(fill="x", padx=8, pady=1)
             self._nav_buttons[key] = item
             if shortcut:
-                self.bind(f"<Alt-{shortcut}>", lambda e, k=key: self.navigate(k))
-                self.bind(f"<Alt-{shortcut.upper()}>", lambda e, k=key: self.navigate(k))
+                self.bind_shell_key(f"<Alt-{shortcut}>", lambda e, k=key: self.navigate(k))
+                self.bind_shell_key(f"<Alt-{shortcut.upper()}>", lambda e, k=key: self.navigate(k))
 
         spacer = ctk.CTkFrame(sidebar, fg_color="transparent")
         spacer.pack(fill="both", expand=True)
@@ -422,7 +487,7 @@ class App(ctk.CTk):
             self.user_text,
             text=f"@{u.username} · {ROLES.get(u.role, u.role)}",
             font=theme.font(10),
-            text_color=theme.color("muted"),
+            text_color=theme.color("sidebar_muted"),
             anchor="w",
         ).pack(fill="x")
 
@@ -475,11 +540,6 @@ class App(ctk.CTk):
             text_color=theme.color("muted"),
         )
         self.date_label.pack(side="right", padx=14)
-        self.bind("<Control-k>", lambda e: self.open_search())
-        self.bind("<Control-K>", lambda e: self.open_search())
-        self.bind("<Control-l>", lambda e: self.lock())
-        self.bind("<Control-L>", lambda e: self.lock())
-        self.bind("<F1>", lambda e: self.show_shortcuts())
 
         self.content = ctk.CTkFrame(shell, fg_color="transparent")
         self.content.grid(row=1, column=1, sticky="nsew", padx=12, pady=8)
@@ -532,6 +592,11 @@ class App(ctk.CTk):
             return
         from hth.ui.widgets.dialogs import ShortcutSheet
 
+        if self._modern is not None:
+            from hth.ui.widgets.dialogs import COUNTER_SHORTCUTS
+
+            ShortcutSheet(self, self._modern.shortcut_list(), "Counter", COUNTER_SHORTCUTS)
+            return
         screens = [(f"Alt+{s.upper()}", label) for _k, label, s, perm, _c in self._registry if s and self.ctx.can(perm)]
         ShortcutSheet(self, screens)
 
@@ -562,6 +627,9 @@ class App(ctk.CTk):
 
     # Navigation --------------------------------------------------------------------------
     def navigate(self, key: str, **kwargs) -> None:
+        if self._modern is not None:  # the new layout: classic keys land in their area
+            self._modern.navigate(key, **kwargs)
+            return
         entry = next((e for e in self._registry if e[0] == key), None)
         if entry is None or not self.ctx.can(entry[3]) or self._shell is None or self.is_locked:
             return
@@ -584,6 +652,12 @@ class App(ctk.CTk):
         except Exception as exc:  # noqa: BLE001
             log.exception("on_show failed for %s", key)
             self.toast(f"Could not load {label}: {exc}", "error")
+
+    def find_view(self, key: str):
+        """The built screen for a classic key in either layout, or None."""
+        if self._modern is not None:
+            return self._modern.find_view(key)
+        return self._views.get(key)
 
     # Feedback ----------------------------------------------------------------------------
     def toast(self, message: str, kind: str = "info") -> None:
@@ -618,13 +692,41 @@ class App(ctk.CTk):
         self.title(f"{__app_name__} {__version__}")
         if not self.is_signed_in or self.is_locked:
             return
-        self._shell.destroy()
-        self._shell = None
-        self._views.clear()
-        self._nav_buttons.clear()
-        self._active = None
+        self._teardown_shell()
         self._build_shell()
         self.navigate("settings")
+
+    # Layout ------------------------------------------------------------------------------
+    def ask_layout(self, layout: str) -> None:
+        """Confirm, then switch the shop to ``layout`` (admin).  Unsaved typing is lost."""
+        from hth.ui.widgets.dialogs import confirm
+
+        if layout == self.layout:
+            return
+        tr = i18n.tr
+        question = (
+            "Switch the whole shop to the new layout?"
+            if layout == "new"
+            else "Switch the whole shop to the classic layout?"
+        )
+        rebuilt = (
+            "Every screen is rebuilt: anything typed but not saved is lost. "
+            "You can switch back at any time in Settings."
+        )
+        if not confirm(self, tr("Switch layout"), f"{tr(question)}\n\n{tr(rebuilt)}"):
+            return
+        # after the click returns: the rebuild destroys the button that was clicked
+        self.after(20, lambda: self.apply_layout(layout))
+
+    def apply_layout(self, layout: str) -> None:
+        self.prefs.set_layout(layout)
+        self.ctx.audit.log("09", f"layout -> {layout}", self.ctx.username)
+        if not self.is_signed_in or self.is_locked:
+            return
+        self._teardown_shell()
+        self._build_shell()
+        self.navigate("settings")
+        self.toast("New layout on" if layout == "new" else "Classic layout on", "success")
 
     def apply_text_scale(self, scale: float) -> None:
         self.prefs.set_text_scale(scale)
@@ -640,12 +742,25 @@ class App(ctk.CTk):
         self.apply_theme("light" if ctk.get_appearance_mode().lower() == "dark" else "dark")
 
     def apply_theme(self, mode: str) -> None:
+        """Light / dark / system - every colour theme has both."""
         self.appearance = mode
         theme.apply_appearance(mode)
         try:
             self.prefs.set_theme(mode)
         except Exception:  # noqa: BLE001 - a read-only database must not break the toggle
             log.exception("could not save theme")
+        self._theme_changed()
+
+    def apply_color_theme(self, key: str) -> None:
+        """Recolour every open screen in place - nothing is rebuilt, nothing typed is lost."""
+        theme.apply_theme(key)
+        try:
+            self.prefs.set_color_theme(theme.active_theme())
+        except Exception:  # noqa: BLE001
+            log.exception("could not save colour theme")
+        self._theme_changed()
+
+    def _theme_changed(self) -> None:
         if hasattr(self, "theme_button"):
             self.theme_button.configure(text=self._theme_icon())
         for view in self._views.values():

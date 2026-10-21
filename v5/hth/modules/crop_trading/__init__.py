@@ -33,4 +33,14 @@ MODULE = ModuleSpec(
     permission=Permission.CROP_TRADING,
     shortcut="c",
     order=20,
+    area="stock",
+    tab="Crops & rates",
+    reports=(
+        "Summary",
+        "Margin by crop",
+        "Margin by buyer",
+        "Purchases by farmer",
+        "Purchases by quality",
+        "Open lots",
+    ),
 )
