@@ -56,9 +56,9 @@ flowchart LR
   end
   subgraph HTH["High Table Holdings v4 (desktop app)"]
     direction TB
-    UI[customtkinter UI<br/>Dashboard · Sales · Accounts · Items · Karar · Reports · Settings]
-    SVC[Services layer<br/>accounts · interest · inventory · sales · krar · auth/permissions · reports · audit · backup]
-    MOD[Feature modules<br/>Bills · Crop trading · Finance]
+    UI[customtkinter UI<br/>Dashboard, Sales, Accounts, Items, Karar, Reports, Settings]
+    SVC[Services layer<br/>accounts, interest, inventory, sales, krar, auth/permissions, reports, audit, backup]
+    MOD[Feature modules<br/>Bills, Crop trading, Finance]
     DB[(SQLite hth.db<br/>versioned schema)]
     UI --> SVC --> DB
     MOD --> SVC

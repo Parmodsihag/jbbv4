@@ -218,7 +218,7 @@ end
 ```
 spec AUDIT
   uses  Nat, Date, string, list
-  sorts Log, Code = {01..12}
+  sorts Log, Code = {01..14}
   ops
     emptyLog : → Log
     log      : Log × Code × string × string × Date → Log      -- (log, code, detail, user, at)
@@ -257,7 +257,106 @@ spec CASHBOOK
 end
 ```
 
-## 4.9 Consistency with the implementation
+---
+
+## 4.10 Counter entry and undo (v5)
+
+The *books* are the tuple of the ledgers, stocks, cash books and crop lots. A counter save
+takes a list of lines and an optional paid-now amount; it either applies all of them or
+none.
+
+```
+spec ENTRY
+  uses  LEDGER, STOCK, CASHBOOK, CROPFIFO, Real, Date, Nat, Bool, list
+  sorts Books, Line, Save, Result
+  ops
+    valid    : Books × Line → Bool
+    apply    : Books × Line → Books                        -- as UC-2 for one line
+    pay      : Books × Real → Books                        -- credit M + cash-book receipt
+    record   : Books × list(Line) × Real → Books + ⊥
+    rows     : Books → set(Row)                            -- every stored row
+    result   : Books × list(Line) × Real → set(Row)        -- rows(record(..)) − rows(B)
+    undo     : Books × set(Row) × Nat → Books + ⊥          -- (books, rows written, minutes since)
+  axioms  ∀ B : Books, l : Line, ls : list(Line), a : Real, m : Nat
+    [E1] record(B, [], 0) = B
+    [E2] record(B, ls, a) = ⊥   and the stored books stay B          if ∃ l ∈ ls : ¬valid(B, l)
+    [E3] record(B, l :: ls, a) = record(apply(B, l), ls, a)          if ∀ l' ∈ l :: ls : valid(B, l')
+    [E4] record(B, [], a) = pay(B, a)                                if a > 0
+    [E5] undo(B', R, m) = ⊥                                          if m > 15
+    [E6] undo(record(B, ls, a), result(B, ls, a), m) = B              if m ≤ 15
+  invariants
+    from E2: a save never leaves part of its lines written (atomicity);
+    from E6: undo restores every balance, stock quantity, cash-book balance, open-lot
+             quantity and last price to its value before the save;
+    for every Ledger L in B: bal is computed from rows only, so E6 needs no stored totals.
+end
+```
+
+---
+
+## 4.11 Sign-in lockout (v5)
+
+```
+spec LOCKOUT
+  uses  Nat, Real, Bool, string
+  sorts State, Outcome = {ok, refused, waiting}
+  consts
+    k = 5      -- failures before a wait
+    w = 30     -- first wait in seconds
+  ops
+    init     : → State
+    fails    : State × string → Nat
+    until    : State × string → Real                     -- time the wait ends (0 = none)
+    attempt  : State × string × Bool × Real → State      -- (state, user, password correct, now)
+    outcome  : State × string × Bool × Real → Outcome
+  axioms  ∀ S : State, u : string, c : Bool, t : Real
+    [O1] fails(init, u) = 0;   until(init, u) = 0
+    [O2] outcome(S, u, c, t) = waiting                        if t < until(S, u)
+    [O3] attempt(S, u, c, t) = S                               if t < until(S, u)
+    [O4] outcome(S, u, true, t) = ok;  fails(attempt(S, u, true, t), u) = 0
+                                                               if t ≥ until(S, u)
+    [O5] outcome(S, u, false, t) = refused;
+         fails(attempt(S, u, false, t), u) = fails(S, u) + 1  if t ≥ until(S, u)
+    [O6] until(attempt(S, u, false, t), u) = t + w · 2^(n − k)
+                                    where n = fails(S, u) + 1, if n ≥ k ∧ t ≥ until(S, u)
+    [O7] fails(attempt(S, u, c, t), v) = fails(S, v)           if v ≠ u      -- per username
+  invariant   every refused attempt is appended to AUDIT with code 08.
+end
+```
+
+---
+
+## 4.12 Program update (v5)
+
+The app folder is a finite map from relative paths to file contents. A manifest names the
+files to write and the files to remove.
+
+```
+spec UPDATE
+  uses  Bool, string, map
+  sorts Folder = map(Path, Bytes), Manifest, Zip
+  ops
+    safe     : Path → Bool        -- relative, no "..", no drive, no root, not .git / __pycache__
+    backup   : Folder × Manifest → Zip           -- the current contents of every touched path
+    apply    : Folder × Manifest → Folder
+    ok       : Folder × Manifest → Bool          -- every copy succeeded
+    restore  : Folder × Zip → Folder
+    data     : Folder → DataFolder               -- the shop's data (a separate store)
+  axioms  ∀ F : Folder, M : Manifest, p : Path
+    [U1] apply(F, M)(p) = new(M)(p)          if p ∈ files(M) ∧ safe(p) ∧ ok(F, M)
+    [U2] p ∉ dom(apply(F, M))                if p ∈ removed(M) ∧ safe(p) ∧ ok(F, M)
+    [U3] apply(F, M)(p) = F(p)               if ¬safe(p) ∨ p ∉ files(M) ∪ removed(M)
+    [U4] apply(F, M) = F                     if ¬ok(F, M)              -- rolled back
+    [U5] restore(apply(F, M), backup(F, M)) = F                         -- undo
+    [U6] data(apply(F, M)) = data(F)                                    -- data untouched
+  invariant   a staged file is accepted only if its git blob hash equals the hash GitHub
+              reports for that path; otherwise nothing is staged.
+end
+```
+
+---
+
+## 4.13 Consistency with the implementation
 
 | Spec | Implementation | Pinning test |
 |------|----------------|--------------|
@@ -269,3 +368,6 @@ end
 | PERMISSIONS | `hth/services/permissions.py` | `tests/test_krar_reports_auth.py::test_permissions` |
 | AUDIT | `AuditService` | asserted throughout |
 | CASHBOOK | `hth/modules/finance/service.py` | `tests/modules/test_finance.py` |
+| ENTRY (v5) | `SalesService.record_lines / record_sale_with_payment / undo` | `test_record_lines_is_atomic_and_undo_reverses_everything`, `test_undo_money_entry_removes_cash_book_line`, `test_undo_settlement_and_crop_purchase`, `test_counter_sale_with_lines_and_paid_now` |
+| LOCKOUT (v5) | `AuthService.authenticate`, `MAX_FAILED_ATTEMPTS`, `LOCKOUT_SECONDS` | `test_login_lockout_after_repeated_failures` |
+| UPDATE (v5) | `hth/services/updates.py` (`apply_pending`, `_safe`, `_restore`, `stage_undo`) | `tests/test_updates.py` |
