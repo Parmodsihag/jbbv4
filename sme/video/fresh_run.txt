@@ -1,0 +1,177 @@
+# Fresh clone, install and test run on the development PC, 23 Oct 2026 (Windows 11, Python 3.10.4).
+# Long pip and pytest output is trimmed with tail; this is what the video's terminal scene shows.
+$ git clone https://github.com/Parmodsihag/jbbv4.git
+Cloning into 'jbbv4'...
+$ python -m venv .venv
+$ .venv\Scripts\activate
+$ python -m pip install --upgrade pip
+    Uninstalling pip-22.0.4:
+      Successfully uninstalled pip-22.0.4
+Successfully installed pip-26.2.2
+$ pip install -r requirements.txt
+Collecting customtkinter>=5.2 (from -r requirements.txt (line 1))
+  Using cached customtkinter-6.0.0-py3-none-any.whl.metadata (698 bytes)
+Collecting matplotlib>=3.7 (from -r requirements.txt (line 2))
+  Downloading matplotlib-3.10.9-cp310-cp310-win_amd64.whl.metadata (52 kB)
+Collecting openpyxl>=3.1 (from -r requirements.txt (line 3))
+  Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+Collecting docxtpl>=0.16 (from -r requirements.txt (line 4))
+  Downloading docxtpl-0.20.2-py3-none-any.whl.metadata (2.8 kB)
+Collecting pypdf>=4 (from -r requirements.txt (line 5))
+  Downloading pypdf-6.21.2-py3-none-any.whl.metadata (7.6 kB)
+Collecting numpy>=1.24 (from -r requirements.txt (line 6))
+  Downloading numpy-2.2.6-cp310-cp310-win_amd64.whl.metadata (60 kB)
+Collecting vosk>=0.3.45 (from -r requirements.txt (line 11))
+  Using cached vosk-0.3.45-py3-none-win_amd64.whl.metadata (1.8 kB)
+Collecting sounddevice>=0.4 (from -r requirements.txt (line 12))
+  Downloading sounddevice-0.5.6-py3-none-win_amd64.whl.metadata (1.4 kB)
+Collecting pywin32>=304 (from -r requirements.txt (line 13))
+  Downloading pywin32-312-cp310-cp310-win_amd64.whl.metadata (11 kB)
+Requirement already satisfied: setuptools<81 in .\.venv\lib\site-packages (from -r requirements.txt (line 15)) (58.1.0)
+Collecting darkdetect (from customtkinter>=5.2->-r requirements.txt (line 1))
+  Using cached darkdetect-0.8.0-py3-none-any.whl.metadata (3.6 kB)
+Collecting packaging (from customtkinter>=5.2->-r requirements.txt (line 1))
+  Using cached packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Collecting contourpy>=1.0.1 (from matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading contourpy-1.3.2-cp310-cp310-win_amd64.whl.metadata (5.5 kB)
+Collecting cycler>=0.10 (from matplotlib>=3.7->-r requirements.txt (line 2))
+  Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)
+Collecting fonttools>=4.22.0 (from matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading fonttools-4.65.0-cp310-cp310-win_amd64.whl.metadata (127 kB)
+Collecting kiwisolver>=1.3.1 (from matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading kiwisolver-1.5.1-cp310-cp310-win_amd64.whl.metadata (5.2 kB)
+Collecting pillow>=8 (from matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading pillow-12.3.0-cp310-cp310-win_amd64.whl.metadata (9.3 kB)
+Collecting pyparsing>=3 (from matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading pyparsing-3.3.3-py3-none-any.whl.metadata (5.9 kB)
+Collecting python-dateutil>=2.7 (from matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading python_dateutil-3.0.0-py2.py3-none-any.whl.metadata (8.2 kB)
+Collecting et-xmlfile (from openpyxl>=3.1->-r requirements.txt (line 3))
+  Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+Collecting python-docx (from docxtpl>=0.16->-r requirements.txt (line 4))
+  Downloading python_docx-1.2.0-py3-none-any.whl.metadata (2.0 kB)
+Collecting jinja2 (from docxtpl>=0.16->-r requirements.txt (line 4))
+  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Collecting lxml (from docxtpl>=0.16->-r requirements.txt (line 4))
+  Downloading lxml-6.1.3-cp310-cp310-win_amd64.whl.metadata (3.4 kB)
+Collecting typing_extensions>=4.0 (from pypdf>=4->-r requirements.txt (line 5))
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting cffi>=1.0 (from vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading cffi-2.1.1-cp310-cp310-win_amd64.whl.metadata (2.6 kB)
+Collecting requests (from vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting srt (from vosk>=0.3.45->-r requirements.txt (line 11))
+  Using cached srt-3.5.3-py3-none-any.whl
+Collecting tqdm (from vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading tqdm-4.70.1-py3-none-any.whl.metadata (57 kB)
+Collecting websockets (from vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading websockets-16.1.1-cp310-cp310-win_amd64.whl.metadata (7.0 kB)
+Collecting pycparser (from cffi>=1.0->vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading pycparser-3.11-py3-none-any.whl.metadata (8.2 kB)
+Collecting six>=1.6 (from python-dateutil>=2.7->matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting tzdata (from python-dateutil>=2.7->matplotlib>=3.7->-r requirements.txt (line 2))
+  Downloading tzdata-2026.5-py2.py3-none-any.whl.metadata (1.4 kB)
+Collecting MarkupSafe>=2.0 (from jinja2->docxtpl>=0.16->-r requirements.txt (line 4))
+  Downloading markupsafe-3.0.4-cp310-cp310-win_amd64.whl.metadata (2.8 kB)
+Collecting charset_normalizer<4,>=2 (from requests->vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading charset_normalizer-3.5.2-cp310-cp310-win_amd64.whl.metadata (47 kB)
+Collecting idna<4,>=2.5 (from requests->vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+Collecting urllib3<3,>=1.26 (from requests->vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting certifi>=2023.5.7 (from requests->vosk>=0.3.45->-r requirements.txt (line 11))
+  Downloading certifi-2026.10.19-py3-none-any.whl.metadata (2.5 kB)
+Collecting colorama (from tqdm->vosk>=0.3.45->-r requirements.txt (line 11))
+  Using cached colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+Using cached customtkinter-6.0.0-py3-none-any.whl (302 kB)
+Downloading matplotlib-3.10.9-cp310-cp310-win_amd64.whl (8.2 MB)
+   ---------------------------------------- 8.2/8.2 MB 17.5 MB/s  0:00:00
+Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+Downloading docxtpl-0.20.2-py3-none-any.whl (17 kB)
+Downloading pypdf-6.21.2-py3-none-any.whl (407 kB)
+Downloading numpy-2.2.6-cp310-cp310-win_amd64.whl (12.9 MB)
+   ---------------------------------------- 12.9/12.9 MB 20.7 MB/s  0:00:00
+Using cached vosk-0.3.45-py3-none-win_amd64.whl (14.0 MB)
+Downloading sounddevice-0.5.6-py3-none-win_amd64.whl (1.0 MB)
+   ---------------------------------------- 1.0/1.0 MB 15.9 MB/s  0:00:00
+Downloading pywin32-312-cp310-cp310-win_amd64.whl (6.9 MB)
+   ---------------------------------------- 6.9/6.9 MB 18.6 MB/s  0:00:00
+Downloading cffi-2.1.1-cp310-cp310-win_amd64.whl (185 kB)
+Downloading contourpy-1.3.2-cp310-cp310-win_amd64.whl (221 kB)
+Using cached cycler-0.12.1-py3-none-any.whl (8.3 kB)
+Downloading fonttools-4.65.0-cp310-cp310-win_amd64.whl (1.6 MB)
+   ---------------------------------------- 1.6/1.6 MB 17.6 MB/s  0:00:00
+Downloading kiwisolver-1.5.1-cp310-cp310-win_amd64.whl (70 kB)
+Using cached packaging-26.3-py3-none-any.whl (129 kB)
+Downloading pillow-12.3.0-cp310-cp310-win_amd64.whl (7.2 MB)
+   ---------------------------------------- 7.2/7.2 MB 15.4 MB/s  0:00:00
+Downloading pyparsing-3.3.3-py3-none-any.whl (126 kB)
+Downloading python_dateutil-3.0.0-py2.py3-none-any.whl (94 kB)
+Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)
+Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Using cached darkdetect-0.8.0-py3-none-any.whl (9.0 kB)
+Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+Downloading markupsafe-3.0.4-cp310-cp310-win_amd64.whl (14 kB)
+Downloading lxml-6.1.3-cp310-cp310-win_amd64.whl (4.0 MB)
+   ---------------------------------------- 4.0/4.0 MB 13.4 MB/s  0:00:00
+Downloading pycparser-3.11-py3-none-any.whl (51 kB)
+Downloading python_docx-1.2.0-py3-none-any.whl (252 kB)
+Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Downloading charset_normalizer-3.5.2-cp310-cp310-win_amd64.whl (215 kB)
+Downloading idna-3.20-py3-none-any.whl (69 kB)
+Downloading urllib3-2.8.0-py3-none-any.whl (135 kB)
+Downloading certifi-2026.10.19-py3-none-any.whl (136 kB)
+Downloading tqdm-4.70.1-py3-none-any.whl (80 kB)
+Using cached colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+Downloading tzdata-2026.5-py2.py3-none-any.whl (347 kB)
+Downloading websockets-16.1.1-cp310-cp310-win_amd64.whl (180 kB)
+Installing collected packages: websockets, urllib3, tzdata, typing_extensions, srt, six, pywin32, pyparsing, pycparser, pillow, packaging, numpy, MarkupSafe, lxml, kiwisolver, idna, fonttools, et-xmlfile, darkdetect, cycler, colorama, charset_normalizer, certifi, tqdm, requests, python-docx, python-dateutil, pypdf, openpyxl, jinja2, customtkinter, contourpy, cffi, vosk, sounddevice, matplotlib, docxtpl
+
+Successfully installed MarkupSafe-3.0.4 certifi-2026.10.19 cffi-2.1.1 charset_normalizer-3.5.2 colorama-0.4.6 contourpy-1.3.2 customtkinter-6.0.0 cycler-0.12.1 darkdetect-0.8.0 docxtpl-0.20.2 et-xmlfile-2.0.0 fonttools-4.65.0 idna-3.20 jinja2-3.1.6 kiwisolver-1.5.1 lxml-6.1.3 matplotlib-3.10.9 numpy-2.2.6 openpyxl-3.1.5 packaging-26.3 pillow-12.3.0 pycparser-3.11 pyparsing-3.3.3 pypdf-6.21.2 python-dateutil-3.0.0 python-docx-1.2.0 pywin32-312 requests-2.34.2 six-1.17.0 sounddevice-0.5.6 srt-3.5.3 tqdm-4.70.1 typing_extensions-4.16.0 tzdata-2026.5 urllib3-2.8.0 vosk-0.3.45 websockets-16.1.1
+$ pip install -r requirements-dev.txt
+Installing collected packages: tomli, ruff, pygments, pluggy, iniconfig, exceptiongroup, pytest
+
+Successfully installed exceptiongroup-1.3.1 iniconfig-2.3.1 pluggy-1.7.0 pygments-2.21.0 pytest-9.1.1 ruff-0.17.2 tomli-2.5.0
+$ pytest -rs
+........................................................................ [ 91%]
+...........................s                                             [100%]
+=========================== short test summary info ===========================
+SKIPPED [1] tests\modules\test_bills.py:235: could not import 'docx2pdf': No module named 'docx2pdf'
+SKIPPED [1] tests\modules\test_bills.py:287: could not import 'docx2pdf': No module named 'docx2pdf'
+SKIPPED [1] tests\test_ui_modern.py:57: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:115: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:144: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:171: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:197: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:208: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:243: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:264: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:297: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:334: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:345: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:362: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:402: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:432: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:440: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:470: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:478: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:494: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:519: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:543: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:569: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_modern.py:596: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:84: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:294: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:337: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:417: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:443: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:473: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:496: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:507: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:550: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:572: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_ui_smoke.py:620: set HTH_UI_TESTS=1 to run UI tests
+SKIPPED [1] tests\test_voice.py:353: set HTH_VOICE_MODEL=<folder with a Vosk model> to run
+280 passed, 36 skipped in 39.60s

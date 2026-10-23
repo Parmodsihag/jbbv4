@@ -17,7 +17,8 @@ for an agri-input shop), prepared against the official *Project Guidelines*
 | 8 | [08_Test_Cases.md](08_Test_Cases.md) | §8 — test cases for the working prototype (TC-1 – TC-166), traceability matrix, acceptance checklist. |
 | 9 | [11_Project_Management.md](11_Project_Management.md) | Management practice: charter, process model, RACI, communication, configuration and change management, quality, metrics, lessons learned. |
 | 10 | [09_Video_Script.md](09_Video_Script.md) | §7 — 2–3 minute screencast script (compile, deploy, features). |
-| 11 | [10_Presentation_Outline.md](10_Presentation_Outline.md) | §5d — PPT outline and likely Q&A. |
+| — | [video/](video/README.md) | §7 — makes the finished screencasts (about 3 minutes each, narrated and subtitled) from real captures of the app on a demo shop: a problem-first version, a technical version for the SEM class, and a feature tour. |
+| 11 | [10_Presentation_Outline.md](10_Presentation_Outline.md) | §5d — PPT outline (the shop's eight problems and how each is solved, matching the problem-first video), the engineering behind each, and likely Q&A. |
 | — | [build_docs.sh](build_docs.sh) | Concatenates 02…08 and 11 into `Documentation.md` and, when `pandoc` is installed, renders `Documentation.pdf`. |
 
 Engineering documents that support the pack live with the code in
