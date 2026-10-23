@@ -1,7 +1,8 @@
 # Feature modules
 
-`bills` and `crop_trading` from v3 are **not** part of the v4 core. They will be rebuilt
-here as independent modules so they can be worked on, tested and released separately.
+Optional features live here as independent packages, so they can be worked on, tested and
+released separately from the core: `bills`, `crop_trading` and `finance`. The core never
+imports them ([ADR 0006](../../docs/adr/0006-feature-modules.md)).
 
 ## Adding a module
 
@@ -26,9 +27,12 @@ MODULE = ModuleSpec(
     key="bills",
     label="Bills",
     view_factory=BillsView,  # (master, ctx) -> BaseView
-    permission=Permission.RECORD_SALE,
+    permission=Permission.BILLING,
     shortcut="b",
     order=10,
+    area="money",   # New layout (v5.5): the area it appears in ...
+    tab="GST bills",  # ... and the tab's name there
+    # reports=("...",)  # report names its screen can open, listed in the Reports catalogue
 )
 ```
 

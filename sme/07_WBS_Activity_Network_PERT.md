@@ -277,3 +277,162 @@ gantt
 | R4 | Team member unavailable | M | M | Owner per WBS package with a named backup; shared conventions |
 | R5 | Laptop-resolution layout bugs | M | L | Scrollable panels, minimum row counts, tested at 1366×768 |
 | R6 | Data loss during import | L | H | Automatic backup before import; import never guesses silently |
+
+---
+
+## 5.8 Tracking: baseline plan vs actual
+
+§5.1 – 5.7 are the **baseline** plan made at the start of the course for v4. Actual dates
+come from the release history (`CHANGELOG.md`, git log of the public repository).
+
+| Milestone | Baseline | Actual | Variance | Note |
+|-----------|----------|--------|----------|------|
+| M0 Abstract submitted | 25 Aug | *fill in* | | `01_Abstract.md` is the abstract for the v4 scope |
+| M1 SRS frozen | 9 Sep | 30 Aug (course pack committed) | ahead | re-baselined for v5 on 23 Oct (this pack) |
+| M2 Core services pass business-rule tests | 1 Oct | 29 Aug (4.0.0) | 23 working days ahead | interest pinned to v3 from the first release |
+| M3 Feature-complete prototype on `main` | 20 Oct | 30 Aug (4.7.0, v4 scope) | ahead | all modules, wizard, reminders, backups |
+| M3a v5 increment complete (scope change, §5.9) | — | 21 Oct (5.7.0) | — | 12 releases 5.0 – 5.7 |
+| M4 Acceptance sign-off with shop data | 30 Oct | planned 28 Oct (§5.10) | on plan | |
+| M5 Documentation, video, zip submitted | 11 Nov | planned 5 Nov (§5.10) | 4 working days of buffer | |
+
+Interpretation: implementation finished well ahead of the baseline because the core was
+built test-first against v3's code, which removed most of the integration and bug-fixing
+time the PERT estimates allowed for (activities G, I, M). The slack was used for a
+**change in scope** (the v5 increment) instead of an earlier submission.
+
+## 5.9 Change in scope: the v5 increment
+
+After the shop used v4, the owner asked for: safety (lock, restore, undo), faster counter
+work, Hindi, asking questions in plain words and by voice, updates without a technician, and
+screens in shop words. The change was accepted on the conditions that v4's rules and numbers
+stay byte-for-byte identical and that every release is shippable on its own
+(see `11_Project_Management.md` §11.5, change control).
+
+```mermaid
+flowchart TB
+  R8[8. v5 increment]
+  R8 --> W81[8.1 Safety & data<br/>own folder, restore, atomic migrations,<br/>lock, lockout, undo]
+  R8 --> W82[8.2 Counter & reports<br/>multi-line, slip, snapshot,<br/>7 reports, Needs attention]
+  R8 --> W83[8.3 Hindi<br/>phrase table, widget hook,<br/>transliteration]
+  R8 --> W84[8.4 Assistant<br/>System 1, tools, System 2,<br/>Kaggle cell]
+  R8 --> W85[8.5 Voice<br/>Vosk grammar, spoken corpus,<br/>spoken answers]
+  R8 --> W86[8.6 Updates<br/>stage, apply, undo]
+  R8 --> W87[8.7 New layout<br/>7 phases]
+  R8 --> W88[8.8 Performance<br/>same figures]
+  R8 --> W89[8.9 Colour themes<br/>WCAG]
+  R8 --> W810[8.10 Tests & documentation]
+```
+
+| WBS | Work package | Depends on | Release | Date |
+|-----|--------------|------------|---------|------|
+| 8.1, 8.2 | Safety, counter, reports | v4 | 5.0.0 | 19 Oct |
+| 8.3 | Hindi | 8.1 | 5.1.0 | 20 Oct |
+| 8.4 | Assistant | 8.3 (Hindi copies of names) | 5.2.0 | 20 Oct |
+| 8.5 | Voice | 8.4 | 5.3.0, 5.3.1 | 20–21 Oct |
+| 8.6 | In-app updates; voice model bundled | 8.5 | 5.4.0 | 21 Oct |
+| 8.7 | New layout (phases 0–6) | 8.2, 8.4 (Ask bar) | 5.5.0 | 20 Oct |
+| 8.8 | Performance | 8.7 | 5.6.0 | 20 Oct |
+| 8.9 | Colour themes | 8.7 | 5.7.0 | 21 Oct |
+| 8.10 | Tests (96 → 316) and this documentation | all | — | 19–23 Oct |
+
+## 5.10 Plan to submission (re-baselined 23 Oct 2026)
+
+Remaining work from Friday 23 October to the deadline on Wednesday 11 November: **14
+working days** including today.
+
+| Id | Activity | Predecessors | o | m | p | te | σ² |
+|----|----------|--------------|---|---|---|----|----|
+| S | Bring all documentation to v5.7 | — | 1 | 1 | 2 | 1.17 | 0.03 |
+| T | Team review of the pack; names, IDs, contributions | S | 1 | 2 | 3 | 2.00 | 0.11 |
+| U | Acceptance test on the shop PC with the owner (AT-1 … AT-20) | S | 1 | 2 | 4 | 2.17 | 0.25 |
+| V | Fix acceptance defects; patch release | U | 1 | 2 | 5 | 2.33 | 0.44 |
+| W | Final regression run and test report | V | 0.5 | 1 | 1.5 | 1.00 | 0.03 |
+| X | Build and check `Documentation.pdf` | T, W | 0.5 | 1 | 2 | 1.08 | 0.06 |
+| Y | Record and edit the video | V | 1 | 2 | 3 | 2.00 | 0.11 |
+| Z | Presentation and Q&A rehearsal | T | 1 | 2 | 3 | 2.00 | 0.11 |
+| Q | Zip, upload to Nalanda, verify the public repository | X, Y, Z | 0.5 | 0.5 | 1 | 0.58 | 0.01 |
+
+```mermaid
+flowchart LR
+  St((Start<br/>23 Oct)) --> S["S  Docs to v5.7<br/>1.17d"]
+  S --> T["T  Team review<br/>2d"]
+  S --> U["U  Acceptance on shop PC<br/>2.17d"]
+  U --> V["V  Fix & patch<br/>2.33d"]
+  V --> W["W  Final run & report<br/>1d"]
+  T --> X
+  W --> X["X  Documentation PDF<br/>1.08d"]
+  V --> Y["Y  Video<br/>2d"]
+  T --> Z["Z  PPT & Q&A<br/>2d"]
+  X --> Q["Q  Zip & submit<br/>0.58d"]
+  Y --> Q
+  Z --> Q
+  Q --> En((End<br/>8.33d))
+  classDef crit fill:#f8d7da,stroke:#c0392b,stroke-width:2px,color:#000;
+  class S,U,V,W,X,Q crit;
+```
+
+| Id | te | ES | EF | LS | LF | Float | Critical |
+|----|----|----|----|----|----|-------|----------|
+| S | 1.17 | 0 | 1.17 | 0 | 1.17 | 0 | ✓ |
+| T | 2.00 | 1.17 | 3.17 | 3.75 | 5.75 | 2.58 | |
+| U | 2.17 | 1.17 | 3.33 | 1.17 | 3.33 | 0 | ✓ |
+| V | 2.33 | 3.33 | 5.67 | 3.33 | 5.67 | 0 | ✓ |
+| W | 1.00 | 5.67 | 6.67 | 5.67 | 6.67 | 0 | ✓ |
+| Z | 2.00 | 3.17 | 5.17 | 5.75 | 7.75 | 2.58 | |
+| Y | 2.00 | 5.67 | 7.67 | 5.75 | 7.75 | 0.08 | |
+| X | 1.08 | 6.67 | 7.75 | 6.67 | 7.75 | 0 | ✓ |
+| Q | 0.58 | 7.75 | 8.33 | 7.75 | 8.33 | 0 | ✓ |
+
+**Critical path:** S → U → V → W → X → Q, expected **8.33 working days**.
+Variance on the path `0.03 + 0.25 + 0.44 + 0.03 + 0.06 + 0.01 = 0.82`, so `σ = 0.91` day.
+
+| Question | Computation | Result |
+|----------|-------------|--------|
+| Expected finish | 8.33 working days from 23 Oct | Wed 4 Nov |
+| P(finish within 10 working days, by Thu 5 Nov) | z = (10 − 8.33) / 0.91 = 1.84 | ≈ 97 % |
+| P(finish within 14 working days, by the deadline) | z = (14 − 8.33) / 0.91 = 6.2 | ≈ 100 % |
+| Duration at 95 % confidence | 8.33 + 1.645 × 0.91 | ≈ 9.8 days (Thu 5 Nov) |
+
+Decision: **target submission Thursday 5 November**, keeping four working days of buffer
+against festival holidays in early November and a slow acceptance round. Y (video) has
+almost no float because it should show the final patched version; record it straight after
+V.
+
+```mermaid
+gantt
+  title Plan to submission (working days, Mon–Fri)
+  dateFormat  YYYY-MM-DD
+  excludes    weekends
+  section Documentation
+  S Docs to v5.7                 :crit, s, 2026-10-23, 1d
+  T Team review                  :t, after s, 2d
+  X Documentation PDF            :crit, x, after w, 1d
+  section Quality
+  U Acceptance on shop PC        :crit, u, after s, 2d
+  V Fix & patch release          :crit, v, after u, 2d
+  W Final run & test report      :crit, w, after v, 1d
+  section Deliverables
+  Y Video                        :y, after v, 2d
+  Z PPT & Q&A                    :z, after t, 2d
+  Q Zip & submit                 :crit, q, after x, 1d
+  Target submission              :milestone, 2026-11-05, 0d
+  Deadline                       :milestone, 2026-11-11, 0d
+```
+
+## 5.11 Risk register (updated 23 Oct 2026)
+
+R1–R6 from §5.7 remain; their status and the risks added for v5 and the remaining work:
+
+| # | Risk | P | I | Status / mitigation |
+|---|------|---|---|---------------------|
+| R1 | Numbers differ from v3 / v4 | L | H | **Closed for v5.0–5.7**: identical on the shop's data; `test_matches_v3`, `test_speed.py` |
+| R2 | customtkinter 5.2 vs 6.0 | M | M | Open: UI suites run on 6.0; acceptance on the shop PC (5.2.2) is activity U |
+| R3 | Scope creep | H | M | **Occurred** (v5 increment): handled by change control and shippable releases |
+| R4 | Team member unavailable | M | M | Open: each document has an owner and a reviewer (`11_Project_Management.md`) |
+| R5 | Laptop-resolution layout bugs | M | L | Open: text size setting; acceptance AT-12 |
+| R6 | Data loss during import / upgrade | L | H | Mitigated: backup before import, migration, restore; atomic migrations |
+| R7 | A bad update reaches the shop PC | L | H | Release checklist, hash checks, Undo last update, branch protection on `v5` |
+| R8 | Voice accuracy in the real shop below the measured 95 % | M | M | Owner records test questions; ask-back; typed questions always work |
+| R9 | Acceptance finds a defect late | M | M | Acceptance moved to the start (U), with V and buffer after it |
+| R10 | Festival holidays in early November | M | M | Target 5 Nov, four days before the deadline |
+| R11 | Documentation drifts from the code | M | M | Docs checked against code on 23 Oct; DoD requires doc updates (`CONTRIBUTING.md`) |
