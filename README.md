@@ -13,7 +13,7 @@ without the internet.
 ![Desktop](https://img.shields.io/badge/desktop-customtkinter-0E7490)
 ![SQLite](https://img.shields.io/badge/data-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Languages](https://img.shields.io/badge/language-English%20%C2%B7%20%E0%A4%B9%E0%A4%BF%E0%A4%A8%E0%A5%8D%E0%A4%A6%E0%A5%80-F59E0B)
-![Version](https://img.shields.io/badge/version-5.5.0-22D3EE)
+![Version](https://img.shields.io/badge/version-5.7.0-22D3EE)
 ![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
 
 <img src="docs/screenshots/hero.png" alt="The Today screen, light theme on the left and dark on the right" width="100%">
@@ -238,17 +238,24 @@ ruff check hth tests tools && ruff format hth tests tools
 python tools/readme_shots.py               # retakes the screenshots on this page (Windows)
 ```
 
+Branches, code standards, how to add a report or a migration, and the definition of done
+are in [CONTRIBUTING.md](CONTRIBUTING.md); the test plan is
+[v5/docs/TEST_PLAN.md](v5/docs/TEST_PLAN.md).
+
 ## In this repository
 
 | folder | what it is |
 |---|---|
-| [`v5/`](v5) | **The app today (v5.5).** Start here. Full manual in [`v5/README.md`](v5/README.md), history in [`v5/CHANGELOG.md`](v5/CHANGELOG.md) |
+| [`v5/`](v5) | **The app today (v5.7).** Start here. Full manual in [`v5/README.md`](v5/README.md), history in [`v5/CHANGELOG.md`](v5/CHANGELOG.md) |
+| [`v5/docs/`](v5/docs/README.md) | User guide, admin guide, architecture and decision records, data dictionary, test plan and report, release process |
 | [`HighTableHoldings-v4/`](HighTableHoldings-v4) | v4, the previous version: the ground-up rewrite of v3, kept for reference |
 | [`sme/`](sme) | The SEM 2026-27 Software Engineering & Management course pack: SRS, DFDs, decision tables, PERT, test cases |
 | [`docs/screenshots/`](docs/screenshots) | The images on this page |
 
-More reading: [how the Assistant understands questions](v5/docs/AI_CHAT_DESIGN.md) ·
-[how voice works](v5/docs/VOICE_DESIGN.md)
+More reading: [all documentation](v5/docs/README.md) · [user guide](v5/docs/USER_GUIDE.md) ·
+[admin guide](v5/docs/ADMIN_GUIDE.md) · [architecture](v5/docs/ARCHITECTURE.md) ·
+[how the Assistant understands questions](v5/docs/AI_CHAT_DESIGN.md) ·
+[how voice works](v5/docs/VOICE_DESIGN.md) · [contributing](CONTRIBUTING.md) · [security](SECURITY.md)
 
 ## License
 

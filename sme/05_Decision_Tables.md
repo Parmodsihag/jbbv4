@@ -200,3 +200,129 @@ Thresholds `t1 < t2 < t3` from Settings; `s` = account score ∈ [0, 1].
 | **Actions** | | | |
 | Do nothing | X | X | |
 | Write `hth_auto_YYYYMMDD.db`; delete oldest beyond N | | | X |
+
+---
+
+**Decision tables added in v5** (DT-15 – DT-22).
+
+## 3.15 DT-15 Sign-in attempt (login lockout)
+
+`n` = consecutive failed attempts for the username before this one; `w` = seconds left in
+its wait.
+
+| Condition | R1 | R2 | R3 | R4 |
+|-----------|----|----|----|----|
+| w > 0 (username is waiting) | Y | N | N | N |
+| Password correct and user active | — | Y | N | N |
+| n + 1 ≥ 5 | — | — | N | Y |
+| **Actions** | | | | |
+| Refuse: "try again in w s"; nothing audited | X | | | |
+| Sign in; n := 0; audit 08 *login* | | X | | |
+| n := n + 1; audit 08 *failed login*; refuse | | | X | X |
+| Start a wait of 30 × 2^(n + 1 − 5) s | | | | X |
+
+## 3.16 DT-16 Undo the last entry
+
+`t` = minutes since the entry was saved.
+
+| Condition | R1 | R2 | R3 | R4 |
+|-----------|----|----|----|----|
+| An entry was saved in this session at the Counter | N | Y | Y | Y |
+| t ≤ 15 | — | N | Y | Y |
+| All rows the entry wrote still exist | — | — | N | Y |
+| **Actions** | | | | |
+| Nothing to undo | X | | | |
+| Refuse: "ask an admin to edit the ledger" | | X | | |
+| Refuse with the reason; nothing changed | | | X | |
+| Delete its ledger rows (three for a settlement), stock movements, cash-book row, crop lot / sale; restore last price; audit; one transaction | | | | X |
+
+## 3.17 DT-17 Which answer the assistant gives
+
+`p` = System 1's probability for its best intent; `top3` = its three best intents;
+threshold 0.55.
+
+| Condition | R1 | R2 | R3 | R4 | R5 | R6 |
+|-----------|----|----|----|----|----|----|
+| A named customer / item matches several records equally | Y | N | N | N | N | N |
+| A required name or slot is missing | — | Y | N | N | N | N |
+| p ≥ 0.55 | — | — | Y | N | N | N |
+| System 2 installed and running | — | — | — | Y | Y | N |
+| System 2's intent ∈ top3 | — | — | — | Y | N | — |
+| **Actions** | | | | | | |
+| Ask back: which one (village / phone shown) | X | | | | | |
+| Ask for the missing name or slot | | X | | | | |
+| Run System 1's intent | | | X | | | |
+| Run System 2's intent | | | | X | | |
+| Ask "did you mean …?" with top3 | | | | | X | X |
+| Check the tool's permission before running; audit 13 | | | X | X | | |
+
+## 3.18 DT-18 Restoring a backup
+
+| Condition | R1 | R2 | R3 | R4 | R5 | R6 |
+|-----------|----|----|----|----|----|----|
+| File exists and opens as SQLite | N | Y | Y | Y | Y | Y |
+| `PRAGMA quick_check` = ok | — | N | Y | Y | Y | Y |
+| Has customers, transactions, items, users tables | — | — | N | Y | Y | Y |
+| user_version ≤ program's schema version | — | — | — | N | Y | Y |
+| Admin confirms after seeing counts and last activity | — | — | — | — | N | Y |
+| **Actions** | | | | | | |
+| Refuse: "not a database" / "cannot open" | X | | | | | |
+| Refuse: "damaged" | | X | | | | |
+| Refuse: "not a High Table Holdings database" | | | X | | | |
+| Refuse: "made by a newer version" | | | | X | | |
+| Nothing changed | | | | | X | |
+| Save current data as `hth_before_restore_<time>.db`; copy backup in; migrate forward; audit 09; sign everyone out | | | | | | X |
+
+## 3.19 DT-19 Start-up with a staged update
+
+| Condition | R1 | R2 | R3 | R4 |
+|-----------|----|----|----|----|
+| `updates/staged` holds a manifest | N | Y | Y | Y |
+| Kind | — | update | update | undo |
+| Every file copied without error | — | Y | N | — |
+| **Actions** | | | | |
+| Start normally | X | | | |
+| Zip every file about to be replaced (`before-…zip`) | | X | X | |
+| Put new files in; delete files dropped upstream; write manifest | | X | | |
+| Put the old files back from the zip | | | X | |
+| Put the zipped files of the last update back | | | | X |
+| Write `last.json`, `updates.log`; clear staging; restart | | X | X | X |
+
+Only relative paths inside the app folder are ever written (no `..`, no drive, no root, no
+`.git` or `__pycache__`).
+
+## 3.20 DT-20 First start of v5 (copy of v4's data)
+
+| Condition | R1 | R2 | R3 | R4 | R5 |
+|-----------|----|----|----|----|----|
+| `HTH_DATA_DIR` set, or not Windows | Y | N | N | N | N |
+| `C:\JBB\v5\hth.db` exists | — | Y | N | N | N |
+| `C:\JBB\v4\hth.db` exists | — | — | N | Y | Y |
+| Copy succeeds | — | — | — | Y | N |
+| **Actions** | | | | | |
+| Use the folder as it is (new database if empty) | X | X | X | | |
+| Copy read-only via backup API to a temp file, rename to `hth.db`, notice after sign-in | | | | X | |
+| Delete the temp file; show the error; exit (next start retries) | | | | | X |
+
+## 3.21 DT-21 Speaking the answer
+
+| Condition | R1 | R2 | R3 | R4 |
+|-----------|----|----|----|----|
+| *Speak answers* setting | never | voice | voice | always |
+| The question was spoken | — | N | Y | — |
+| **Actions** | | | | |
+| Show the answer only | X | X | | |
+| Show it and speak a short Hindi summary | | | X | X |
+
+## 3.22 DT-22 How an update is installed
+
+| Condition | R1 | R2 | R3 | R4 |
+|-----------|----|----|----|----|
+| Running as a packaged (PyInstaller) build | Y | N | N | N |
+| The app folder is a git checkout | — | Y | Y | N |
+| The checkout has uncommitted changes | — | Y | N | — |
+| **Actions** | | | | |
+| Refuse: a packaged build cannot update itself | X | | | |
+| Refuse: commit or discard local changes first | | X | | |
+| `git pull --ff-only` | | | X | |
+| Download changed files, verify hashes, stage for the next start (DT-19) | | | | X |
