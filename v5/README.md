@@ -11,6 +11,11 @@ migrations, undo) and more useful at the counter (multi-item entries, account sn
 printable slip, Indian number format, seven new reports, a *Needs attention* panel).
 See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
+**Documentation:** [docs/README.md](docs/README.md) lists everything: the task-based
+[user guide](docs/USER_GUIDE.md) for the New layout, the [admin guide](docs/ADMIN_GUIDE.md)
+(install, backups, updates, troubleshooting), [architecture](docs/ARCHITECTURE.md),
+[data dictionary](docs/DATA_DICTIONARY.md) and the [test plan](docs/TEST_PLAN.md).
+
 ---
 
 ## Quick start
@@ -300,7 +305,7 @@ How it works (details in `docs/AI_CHAT_DESIGN.md`):
 | Stock | `in stock = Σ received − Σ sold`, in the item's own unit. A sale/receipt against a stock item writes a movement and sets the item's *last price*. Quantities are fractional (v3 truncated to whole numbers). |
 | Units | Mass: `G` `KG` `QTL` (1 QTL = 100 KG). Volume: `ML` `LTR`. Count: `PCS` `BAG` `BOX` `PKT` `BTL` (not convertible). `hth/domain/units.py`. |
 | Days / score | *Days* = days since the newest non-settlement entry. *Score* = `0.6·norm(log amount) + 0.4·norm(log days)`. |
-| Audit codes | `01` account added, `02` item added, `03` sale, `04` receive, `05` modify, `06` delete, plus new `07` krar, `08` login, `09` user/admin. |
+| Audit codes | `01` account added, `02` item added, `03` sale, `04` receive, `05` modify, `06` delete, plus new `07` krar, `08` login, `09` user/admin, `10` crop, `11` rate, `12` finance, `13` assistant, `14` update. |
 
 One deliberate fix: v3 froze "today" at program start, so an app left running overnight
 computed interest with yesterday's date. v4 always uses the current date.
@@ -430,15 +435,16 @@ hth/
                             slips (counter receipts), statements, reminders, search
   assistant/                chat assistant: normalize (language, periods), entities (names,
                             ask-back), voice (Vosk, microphone), speech (spoken answers),
-                            spoken (Hinglish as heard),
-                            ask-back), system1 (classifier), system2 (optional GGUF model),
+                            spoken (Hinglish as heard), system1 (classifier), system2 (optional GGUF model),
                             tools (read-only answers), core (dialog), data (training corpus)
   migration/from_v3.py      legacy importer
   ui/                       customtkinter app: theme, icons, widgets, views, app shell
   ui/modern/                the new layout (v5.5): shell, area registry, widgets, actions,
                             areas/ (today, counter, khata, stock, money, reports, settings)
-  modules/                  optional feature modules (bills, crop trading) – see README there
+  modules/                  optional feature modules (bills, crop trading, finance) – see README there
 tests/                      pytest suite (business rules, migration, opt-in UI walkthrough)
+docs/                       user and admin guides, architecture, decision records, data dictionary,
+                            test plan and report, release process, assistant and voice designs
 ```
 
 Layering rule: `ui` → `services` → `db`/`domain`. Views never write SQL; services never
@@ -453,6 +459,9 @@ HTH_UI_TESTS=1 pytest tests/test_ui_smoke.py   # drives the real window (needs a
 ruff format hth tests tools # formatting
 ruff check hth tests tools  # lint
 ```
+
+The test plan is [docs/TEST_PLAN.md](docs/TEST_PLAN.md); how to work on the code is in
+[CONTRIBUTING.md](../CONTRIBUTING.md); how to release is in [docs/RELEASING.md](docs/RELEASING.md).
 
 Packaging for the shop PC (single folder, no Python needed):
 

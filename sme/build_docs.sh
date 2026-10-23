@@ -6,11 +6,12 @@ cd "$(dirname "$0")"
 
 PARTS=(02_Team_and_Contributions.md 03_SRS.md 04_DFD_and_Data_Model.md \
        05_Decision_Tables.md 06_Algebraic_Specifications.md \
-       07_WBS_Activity_Network_PERT.md 08_Test_Cases.md)
+       07_WBS_Activity_Network_PERT.md 08_Test_Cases.md \
+       11_Project_Management.md)
 
 {
   echo "---"
-  echo "title: \"High Table Holdings v4 — Project Documentation\""
+  echo "title: \"High Table Holdings v5 — Project Documentation\""
   echo "subtitle: \"Software Engineering & Management, SEM 2026-27\""
   echo "date: \"$(date +%d\ %B\ %Y)\""
   echo "toc: true"
